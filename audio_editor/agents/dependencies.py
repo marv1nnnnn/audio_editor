@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Callable
 
 import inspect
-import audio_tools
+from audio_editor import audio_tools
 
 from .models import AudioPlan, AudioInput, ExecutionResult, ToolDefinition
 
@@ -49,8 +49,8 @@ class PlannerDependencies:
 class ExecutorDependencies:
     """Dependencies for the Executor Agent."""
     context: AudioProcessingContext
+    plan_step: str
+    current_audio_path: str
     tool_definitions: List[ToolDefinition]
-    plan_step_index: int
-    plan: AudioPlan
     execution_result: Optional[ExecutionResult] = None
     retry_limit: int = 2 

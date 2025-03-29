@@ -14,11 +14,21 @@ An intelligent audio processing tool powered by Gemini AI and Pydantic AI that c
 
 ## Project Structure
 
-The project consists of three main components:
+The project consists of four main components:
 
 1. **Multi-agent system** (`audio_editor/agents`): Implements the Planner and Executor agents using Pydantic AI
-2. **ai_audio_editor_v2.py**: Legacy orchestrator for audio processing using monolithic LLM planning
-3. **audio_tools.py**: Contains the audio processing functions that are called by both systems
+2. **Modular audio tools** (`audio_editor/audio_tools`): A comprehensive library of audio processing functions
+3. **ai_audio_editor_v2.py**: Legacy orchestrator for audio processing using monolithic LLM planning
+4. **audio_tools.py**: Legacy wrapper for backward compatibility
+
+The audio tools package is organized into the following modules:
+- `audio_tools/config.py`: Configuration constants
+- `audio_tools/utils.py`: Utility functions
+- `audio_tools/io.py`: File I/O functions
+- `audio_tools/manipulation.py`: Basic audio manipulation functions
+- `audio_tools/effects.py`: Audio effects processing
+- `audio_tools/volume.py`: Volume adjustment functions
+- `audio_tools/ai.py`: AI-powered analysis and generation
 
 ## Installation
 
@@ -141,7 +151,7 @@ This architecture provides better error handling, more robust code generation, a
 
 ## Available Audio Tools
 
-The system includes various audio processing functions:
+The system includes various audio processing functions organized into modules:
 
 ### File Operations
 - Read/write audio files
@@ -175,6 +185,27 @@ The AI Audio Editor can handle complex multi-step tasks like:
 - "Make this guitar recording sound like it's being played in a large cathedral"
 - "Create a lofi hip-hop version of this piano sample"
 - "Add rain sounds to this nature recording and enhance the bird calls"
+
+## Using the Audio Tools Library
+
+You can use the audio tools library directly in your code:
+
+```python
+from audio_editor.audio_tools import CLIP, AUDIO_QA, LOUDNESS_NORM, ADD_NOISE
+
+# Analyze audio content
+analysis = AUDIO_QA("input.wav", "Describe the audio quality and content")
+print(analysis)
+
+# Extract a segment from 10s to 30s
+clipped = CLIP("input.wav", offset=30.0, onset=10.0, out_wav="segment.wav")
+
+# Normalize loudness to -14 LUFS (standard for streaming)
+normalized = LOUDNESS_NORM(clipped, volume=-14.0)
+
+# Add subtle noise
+final = ADD_NOISE(normalized, min_amplitude=0.001, max_amplitude=0.005)
+```
 
 ## Development
 

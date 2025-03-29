@@ -11,7 +11,7 @@ authors = [
     {name = "Project Contributors"}
 ]
 license = {text = "MIT"}
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -21,7 +21,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "numpy==2.1.0",
+    "numpy>=2.1.0",
     "scipy>=1.11.0",
     "torch>=2.6.0",
     "torchaudio>=2.6.0",
@@ -49,11 +49,8 @@ dependencies = [
 audio-editor = "audio_editor.agents.main:main"
 
 [tool.setuptools]
-packages = ["audio_editor", "audio_editor.agents"]
-py-modules = ["audio_tools"]
+packages = ["audio_editor", "audio_editor.agents", "audio_editor.audio_tools"]
 
-[tool.uv]
-exclude = []
 
 [tool.ruff]
 line-length = 88

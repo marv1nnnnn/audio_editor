@@ -12,7 +12,7 @@ import logfire
 from typing import Dict, Any, Callable, Optional, List, Tuple
 
 from .models import ExecutionResult
-import audio_tools
+from audio_editor import audio_tools
 
 
 class MCPCodeExecutor:
