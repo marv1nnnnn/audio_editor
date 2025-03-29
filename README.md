@@ -1,21 +1,24 @@
 # AI Audio Editor
 
-An intelligent audio processing tool powered by Gemini AI that creates and executes step-by-step plans for audio transformations based on natural language instructions.
+An intelligent audio processing tool powered by Gemini AI and Pydantic AI that creates and executes step-by-step plans for audio transformations based on natural language instructions. The system employs a multi-agent architecture for improved planning and execution.
 
 ## Features
 
+- Multi-agent architecture with dedicated Planner and Executor agents
 - Analyze audio files using AI
 - Apply audio transformations (filters, effects, normalization, etc.)
 - Generate AI-based audio content
 - Mix and concatenate audio files
 - Execute complex multi-step audio processing workflows
+- Automatic error recovery and replanning
 
 ## Project Structure
 
-The project consists of two main components:
+The project consists of three main components:
 
-1. **ai_audio_editor_v2.py**: Orchestrates the audio processing workflow using LLM planning
-2. **audio_tools.py**: Contains the audio processing functions that are called by the main module
+1. **Multi-agent system** (`audio_editor/agents`): Implements the Planner and Executor agents using Pydantic AI
+2. **ai_audio_editor_v2.py**: Legacy orchestrator for audio processing using monolithic LLM planning
+3. **audio_tools.py**: Contains the audio processing functions that are called by both systems
 
 ## Installation
 
@@ -55,28 +58,63 @@ The project consists of two main components:
 
 ## Usage
 
+### Multi-agent System (Recommended)
+
 Run the editor with a task description and input file:
-
-```bash
-python ai_audio_editor_v2.py --task "Enhance vocals and increase bass" --input input.wav --output enhanced.wav
-```
-
-Alternatively, if installed as a package:
 
 ```bash
 audio-editor --task "Enhance vocals and increase bass" --input input.wav --output enhanced.wav
 ```
 
+### Legacy System
+
+```bash
+audio-editor-legacy --task "Enhance vocals and increase bass" --input input.wav --output enhanced.wav
+```
+
 ### Command Line Arguments
 
-- `--task`: Description of the audio transformation task (required)
-- `--input`: Path to the input audio file (required)
-- `--output`: Path for the output audio file (default: "output.wav")
-- `--model`: Gemini model to use (default: "gemini-1.5-flash")
+- `--task`, `-t`: Description of the audio transformation task (required)
+- `--input`, `-i`: Path to the input audio file (required)
+- `--output`, `-o`: Path for the output audio file (optional)
+- `--model`, `-m`: Gemini model to use (default: "gemini-2.0-flash")
+- `--working-dir`, `-w`: Directory for intermediate files (optional)
+- `--transcript`: Transcript of the audio file, if available (optional)
 
 ## How It Works
 
-1. **Planning**: The system analyzes your request and creates a step-by-step audio processing plan using Gemini AI.
+### Multi-agent System
+
+The multi-agent system uses two specialized agents working together:
+
+1. **Planner Agent**:
+   - Creates initial step-by-step plans
+   - Monitors execution progress
+   - Updates step statuses based on execution results
+   - Handles recovery and replanning when steps fail
+   - Sets checkpoints after successful steps for recovery points
+
+2. **Executor Agent**:
+   - Generates Python code for each plan step
+   - Refines code when execution errors occur
+   - Manages retries for failed steps
+   - Validates code before execution
+
+3. **MCP (Master Control Program)**:
+   - Executes the Python code in a controlled environment
+   - Parses and validates the generated code
+   - Returns detailed execution results
+
+4. **Coordinator**:
+   - Orchestrates the workflow between agents
+   - Handles file management and dependencies
+   - Tracks overall progress of the plan
+
+This architecture provides better error handling, more robust code generation, and clearer separation of concerns compared to the legacy system.
+
+### Legacy System
+
+1. **Planning**: Analyzes your request and creates a step-by-step audio processing plan using Gemini AI.
 2. **Execution**: Each step is executed sequentially, with results from one step feeding into the next.
 3. **Clarification**: If needed, the AI will ask for clarification on specific parameters.
 4. **Output**: The final processed audio is saved to the specified output location.
@@ -149,6 +187,70 @@ To build the package:
 ```bash
 uv pip build
 ```
+
+### Testing
+
+The project uses pytest for testing. The test suite includes:
+
+1. Unit tests for individual components
+2. Integration tests for agent interactions
+3. End-to-end tests for complete workflows
+
+To run the tests:
+
+```bash
+# Install test dependencies
+uv pip install pytest pytest-asyncio pytest-cov
+
+# Run all tests
+pytest
+
+# Run with coverage report
+pytest --cov=audio_editor tests/
+
+# Run specific test categories
+pytest tests/unit/
+pytest tests/integration/
+pytest tests/e2e/
+
+# Run tests in parallel
+pytest -n auto
+
+# Run with detailed output
+pytest -v
+```
+
+The test suite provides comprehensive coverage of:
+- Model validation and constraints
+- Agent interaction patterns
+- Error handling and recovery
+- Checkpoint system
+- Concurrent processing
+- End-to-end workflows
+
+### Test Structure
+
+```
+tests/
+├── conftest.py           # Shared fixtures and utilities
+├── unit/                 # Unit tests
+│   ├── test_models.py    # Pydantic model tests
+│   ├── test_dependencies.py  # Dependency class tests
+│   └── test_mcp.py      # Master Control Program tests
+├── integration/          # Integration tests
+│   └── test_agent_interactions.py  # Agent interaction tests
+└── e2e/                 # End-to-end tests
+    └── test_audio_processing.py  # Complete workflow tests
+```
+
+### Writing Tests
+
+When adding new features, please ensure:
+1. Unit tests cover the new functionality
+2. Integration tests verify interaction with existing components
+3. End-to-end tests demonstrate the feature in a complete workflow
+4. All tests are properly documented
+5. Test fixtures are reusable and maintainable
 
 ## Requirements
 

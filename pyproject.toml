@@ -46,10 +46,11 @@ dependencies = [
 "Bug Tracker" = "https://github.com/yourusername/audio_editor/issues"
 
 [project.scripts]
-audio-editor = "ai_audio_editor_v2:main_async"
+audio-editor = "audio_editor.agents.main:main"
 
 [tool.setuptools]
-packages = ["audio_editor"]
+packages = ["audio_editor", "audio_editor.agents"]
+py-modules = ["audio_tools"]
 
 [tool.uv]
 exclude = []
