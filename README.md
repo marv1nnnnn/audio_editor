@@ -66,11 +66,31 @@ Run the editor with a task description and input file:
 audio-editor --task "Enhance vocals and increase bass" --input input.wav --output enhanced.wav
 ```
 
-### Legacy System
+### Direct Script Usage
+
+You can also run the main script directly using `uv run` without installing the package:
 
 ```bash
-audio-editor-legacy --task "Enhance vocals and increase bass" --input input.wav --output enhanced.wav
+uv run audio_editor/agents/main.py \
+  --task "Enhance vocals and increase bass" \
+  --input ./my_audio.wav \
+  --output ./enhanced.wav
 ```
+
+This method supports all the same arguments as the installed version:
+- `--task`, `-t`: Description of what you want to do with the audio
+- `--input`, `-i`: Path to your input WAV file
+- `--output`, `-o`: Where to save the processed file
+- `--model`, `-m`: Gemini model to use (default: "gemini-2.0-flash")
+- `--working-dir`, `-w`: Directory for temporary files
+- `--transcript`: Transcript of the audio, if available
+
+You can view all available options with:
+```bash
+uv run audio_editor/agents/main.py --help
+```
+
+Note: Make sure you have set up your environment variables (like `GEMINI_API_KEY`) before running the script.
 
 ### Command Line Arguments
 
