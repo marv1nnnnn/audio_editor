@@ -3,7 +3,7 @@ Pydantic models for the audio processing multi-agent system.
 """
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict, Any
 
 from pydantic import BaseModel, Field
 
@@ -72,4 +72,48 @@ class ExecutorOutput(BaseModel):
     step_index: int = Field(..., description="Index of the step being executed")
     generated_code: str = Field(..., description="Generated Python code for execution")
     persistent_failure: bool = Field(default=False, description="Whether the step has persistently failed")
-    retry_count: int = Field(default=0, description="Number of retries attempted") 
+    retry_count: int = Field(default=0, description="Number of retries attempted")
+
+# New models for the optimized workflow
+
+class CritiqueResult(BaseModel):
+    """Result of a critique of a plan or code."""
+    is_approved: bool = Field(..., description="Whether the plan or code is approved")
+    suggestions: List[str] = Field(default_factory=list, description="Suggestions for improvement")
+    improved_version: Optional[str] = Field(None, description="Improved version if not approved")
+    reasoning: str = Field(..., description="Reasoning behind the critique")
+    critique_type: str = Field(..., description="Type of critique (plan or code)")
+
+
+class QAResult(BaseModel):
+    """Result of QA verification of execution output."""
+    meets_requirements: bool = Field(..., description="Whether the output meets requirements")
+    issues: List[str] = Field(default_factory=list, description="Issues with the output")
+    suggestions: List[str] = Field(default_factory=list, description="Suggestions for improvement")
+    metrics: Dict[str, Any] = Field(default_factory=dict, description="Quantitative metrics if applicable")
+    reasoning: str = Field(..., description="Reasoning behind the QA assessment")
+
+
+class ErrorAnalysisResult(BaseModel):
+    """Result of analyzing an error trace."""
+    error_type: str = Field(..., description="Type of error")
+    root_cause: str = Field(..., description="Root cause of the error")
+    fix_suggestions: List[str] = Field(default_factory=list, description="Suggestions to fix the error")
+    code_fixes: Optional[str] = Field(None, description="Suggested code fixes")
+    requires_replanning: bool = Field(default=False, description="Whether replanning is needed")
+    confidence: float = Field(..., description="Confidence in the analysis (0-1)")
+
+
+class UserFeedbackRequest(BaseModel):
+    """Request for feedback from the user."""
+    query: str = Field(..., description="Question to ask the user")
+    context: str = Field(..., description="Context for the question")
+    options: Optional[List[str]] = Field(None, description="Options for the user to choose from")
+    severity: str = Field(default="info", description="Severity of the request (info, warning, error)")
+    request_type: str = Field(..., description="Type of request (clarification, confirmation, choice)")
+
+
+class UserFeedbackResponse(BaseModel):
+    """Response from the user to a feedback request."""
+    response: str = Field(..., description="User's response")
+    timestamp: float = Field(..., description="Timestamp of the response") 

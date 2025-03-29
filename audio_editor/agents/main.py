@@ -16,7 +16,10 @@ async def process_audio_file(
     output_file: str = None,
     model_name: str = "gemini-2.0-flash",
     working_dir: str = None,
-    transcript: str = ""
+    transcript: str = "",
+    interactive: bool = True,
+    enable_critique: bool = True,
+    enable_qa: bool = True
 ) -> str:
     """
     Process an audio file using the multi-agent system.
@@ -28,6 +31,9 @@ async def process_audio_file(
         model_name: Name of the LLM model to use
         working_dir: Directory for intermediate files
         transcript: Transcript of the audio file (if available)
+        interactive: Whether to enable interactive user feedback
+        enable_critique: Whether to enable the Critique Agent
+        enable_qa: Whether to enable the QA Agent
         
     Returns:
         Path to the output audio file
@@ -38,8 +44,14 @@ async def process_audio_file(
     
     os.makedirs(working_dir, exist_ok=True)
     
-    # Initialize the coordinator
-    coordinator = AudioProcessingCoordinator(working_dir, model_name)
+    # Initialize the coordinator with new options
+    coordinator = AudioProcessingCoordinator(
+        working_dir=working_dir, 
+        model_name=model_name,
+        interactive=interactive,
+        enable_critique=enable_critique,
+        enable_qa=enable_qa
+    )
     
     # Process the audio
     result_path = await coordinator.process_audio(task, input_file, transcript)
@@ -89,12 +101,36 @@ def main():
         help="Transcript of the audio file (if available)"
     )
     
+    # Add new command-line arguments for the enhanced features
+    parser.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="Disable interactive user feedback (use default responses)"
+    )
+    parser.add_argument(
+        "--disable-critique",
+        action="store_true",
+        help="Disable the Critique Agent for plan and code review"
+    )
+    parser.add_argument(
+        "--disable-qa",
+        action="store_true",
+        help="Disable the QA Agent for output quality verification"
+    )
+    parser.add_argument(
+        "--log-level",
+        choices=["debug", "info", "warning", "error"],
+        default="info",
+        help="Set logging level (default: info)"
+    )
+    
     args = parser.parse_args()
     
-    # Configure logging
-    logfire.configure()
+    # Configure logging with the specified level
+    log_level = getattr(logfire.LogLevel, args.log_level.upper(), logfire.LogLevel.INFO)
+    logfire.configure(level=log_level)
     
-    # Process the audio file
+    # Process the audio file with new options
     try:
         result_path = asyncio.run(process_audio_file(
             task=args.task,
@@ -102,7 +138,10 @@ def main():
             output_file=args.output,
             model_name=args.model,
             working_dir=args.working_dir,
-            transcript=args.transcript
+            transcript=args.transcript,
+            interactive=not args.non_interactive,
+            enable_critique=not args.disable_critique,
+            enable_qa=not args.disable_qa
         ))
         
         print(f"Audio processing completed successfully. Result: {result_path}")

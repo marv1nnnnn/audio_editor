@@ -11,12 +11,15 @@ An intelligent audio processing tool powered by Gemini AI and Pydantic AI that c
 - Mix and concatenate audio files
 - Execute complex multi-step audio processing workflows
 - Automatic error recovery and replanning
+- Quality verification with dedicated QA Agent
+- Plan and code critique with specialized Critique Agent
+- Interactive user feedback for ambiguous instructions or decisions
 
 ## Project Structure
 
 The project consists of four main components:
 
-1. **Multi-agent system** (`audio_editor/agents`): Implements the Planner and Executor agents using Pydantic AI
+1. **Multi-agent system** (`audio_editor/agents`): Implements the Planner, Executor, Critique, and QA agents using Pydantic AI
 2. **Modular audio tools** (`audio_editor/audio_tools`): A comprehensive library of audio processing functions
 3. **ai_audio_editor_v2.py**: Legacy orchestrator for audio processing using monolithic LLM planning
 4. **audio_tools.py**: Legacy wrapper for backward compatibility
@@ -110,12 +113,16 @@ Note: Make sure you have set up your environment variables (like `GEMINI_API_KEY
 - `--model`, `-m`: Gemini model to use (default: "gemini-2.0-flash")
 - `--working-dir`, `-w`: Directory for intermediate files (optional)
 - `--transcript`: Transcript of the audio file, if available (optional)
+- `--non-interactive`: Disable interactive user feedback, use default responses
+- `--disable-critique`: Disable the Critique Agent for plan and code review
+- `--disable-qa`: Disable the QA Agent for output quality verification
+- `--log-level`: Set logging level (choices: debug, info, warning, error)
 
 ## How It Works
 
 ### Multi-agent System
 
-The multi-agent system uses two specialized agents working together:
+The multi-agent system uses four specialized agents working together:
 
 1. **Planner Agent**:
    - Creates initial step-by-step plans
@@ -130,17 +137,48 @@ The multi-agent system uses two specialized agents working together:
    - Manages retries for failed steps
    - Validates code before execution
 
-3. **MCP (Master Control Program)**:
+3. **Critique Agent**:
+   - Reviews plans for completeness, efficiency, and robustness
+   - Evaluates generated code for correctness and best practices
+   - Suggests improvements for both plans and code
+   - Helps maintain high quality across the workflow
+
+4. **QA Agent**:
+   - Verifies the processed audio meets requirements
+   - Computes quantitative metrics for audio quality
+   - Identifies issues in the final output
+   - Recommends further processing if needed
+
+5. **Error Analyzer**:
+   - Analyzes error traces to determine root cause
+   - Suggests specific fixes for code errors
+   - Determines if errors require code fixes or replanning
+   - Provides confidence scores for its error analysis
+
+6. **MCP (Master Control Program)**:
    - Executes the Python code in a controlled environment
    - Parses and validates the generated code
    - Returns detailed execution results
 
-4. **Coordinator**:
+7. **Coordinator**:
    - Orchestrates the workflow between agents
    - Handles file management and dependencies
+   - Manages the interactive feedback loop with users
    - Tracks overall progress of the plan
 
 This architecture provides better error handling, more robust code generation, and clearer separation of concerns compared to the legacy system.
+
+### Interactive Feedback
+
+The system can interact with you during processing to:
+
+1. **Request clarification** for ambiguous instructions
+2. **Ask for confirmation** before applying fixes to errors
+3. **Provide choices** between alternative approaches
+4. **Allow custom code input** when automatic fixes fail
+5. **Request feedback** on quality assessment results
+
+This interactive mode can be disabled with the `--non-interactive` flag for automated batch processing.
 
 ### Legacy System
 
@@ -185,6 +223,8 @@ The AI Audio Editor can handle complex multi-step tasks like:
 - "Make this guitar recording sound like it's being played in a large cathedral"
 - "Create a lofi hip-hop version of this piano sample"
 - "Add rain sounds to this nature recording and enhance the bird calls"
+- "Analyze my band's mix, identify mastering issues, and fix them"
+- "Remove background conversation from my voice memo while preserving audio quality"
 
 ## Using the Audio Tools Library
 
