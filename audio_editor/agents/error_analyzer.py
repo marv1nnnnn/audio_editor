@@ -15,13 +15,17 @@ from .dependencies import ErrorAnalysisDependencies
 
 
 class ErrorAnalysisResponse(BaseModel):
-    """Response model for the Error Analyzer."""
-    error_type: str = Field(..., description="Type of error")
-    root_cause: str = Field(..., description="Root cause of the error")
-    fix_suggestions: List[str] = Field(default_factory=list, description="Suggestions to fix the error")
-    code_fixes: Optional[str] = Field(None, description="Suggested code fixes")
-    requires_replanning: bool = Field(default=False, description="Whether replanning is needed")
-    confidence: float = Field(..., description="Confidence in the analysis (0-1)")
+    """Response from the error analyzer."""
+    error_type: str
+    root_cause: str
+    fix_suggestions: List[str] = []
+    code_fixes: Optional[str] = None
+    requires_replanning: bool = False
+    confidence: float
+    
+    model_config = {
+        "json_schema_extra": {"additionalProperties": True}
+    }
 
 
 # Initialize Error Analyzer Agent
@@ -29,19 +33,11 @@ error_analyzer_agent = Agent(
     'gemini-2.0-pro',  # Using a more powerful model for better error analysis
     deps_type=ErrorAnalysisDependencies,
     result_type=ErrorAnalysisResponse,
-    system_prompt="""
-You are the Error Analyzer in a multi-agent system for audio processing.
-
-Core Responsibilities:
-1. Error Interpretation: Analyze execution error traces to identify the root cause
-2. Code Diagnosis: Review code that generated errors and identify issues
-3. Fix Suggestion: Propose specific fixes for the identified issues
-4. Replanning Assessment: Determine if errors require plan modifications
-5. Confidence Estimation: Provide a confidence level for your analysis
-
-Your goal is to transform error messages into actionable insights. Rather than just reporting
-the error, you should explain what went wrong, why it went wrong, and how to fix it.
-"""
+    system_prompt=(
+        "You are an expert error analyzer for audio processing code. "
+        "Your task is to diagnose execution errors, identify root causes, "
+        "and propose fixes or determine if replanning is needed."
+    )
 )
 
 

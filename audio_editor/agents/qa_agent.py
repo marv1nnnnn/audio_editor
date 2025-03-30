@@ -14,12 +14,16 @@ from .dependencies import QAAgentDependencies
 
 
 class QAResponse(BaseModel):
-    """Response model for the QA Agent."""
-    meets_requirements: bool = Field(..., description="Whether the output meets requirements")
-    issues: List[str] = Field(default_factory=list, description="Issues with the output")
-    suggestions: List[str] = Field(default_factory=list, description="Suggestions for improvement")
-    metrics: Dict[str, Any] = Field(default_factory=dict, description="Quantitative metrics if applicable")
-    reasoning: str = Field(..., description="Reasoning behind the QA assessment")
+    """Response from the QA agent."""
+    meets_requirements: bool
+    issues: List[str] = []
+    suggestions: List[str] = []
+    metrics: Dict[str, Any] = {}
+    reasoning: str
+    
+    model_config = {
+        "json_schema_extra": {"additionalProperties": True}
+    }
 
 
 # Initialize QA Agent
@@ -27,19 +31,11 @@ qa_agent = Agent(
     'gemini-2.0-pro',  # Using a more powerful model for better quality assessment
     deps_type=QAAgentDependencies,
     result_type=QAResponse,
-    system_prompt="""
-You are the QA Agent in a multi-agent system for audio processing.
-
-Core Responsibilities:
-1. Output Verification: Verify that execution results meet the original requirements
-2. Quality Assessment: Assess the quality of processed audio against industry standards
-3. Issue Identification: Identify any quality issues or defects in the processed audio
-4. Metrics Calculation: Calculate quantitative metrics to evaluate audio quality
-5. Improvement Recommendations: Suggest improvements if quality is insufficient
-
-You should objectively evaluate the audio processing results and provide detailed feedback
-on whether they meet the requirements and quality standards expected.
-"""
+    system_prompt=(
+        "You are an expert audio quality assessor. "
+        "Your task is to evaluate processed audio outputs against requirements and standards. "
+        "Verify that the audio meets quality benchmarks and identify any issues or suggestions for improvement."
+    )
 )
 
 

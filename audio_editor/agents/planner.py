@@ -2,41 +2,37 @@
 Planner Agent for the audio processing multi-agent system.
 """
 import logfire
-from typing import Optional, List
+from typing import Optional, List, Dict, Any, TypeVar, Union
 
 from pydantic_ai import Agent, RunContext, ModelRetry
 from pydantic import BaseModel, Field
 
-from .models import AudioPlan, PlannerOutput, StepStatus, PlanStep
+from .models import AudioPlan, PlannerOutput, StepStatus, PlanStep, ExecutionResult, ErrorAnalysisResult
 from .dependencies import PlannerDependencies
 
 
 class PlannerResponse(BaseModel):
-    """Response model for the Planner Agent."""
-    updated_plan: AudioPlan = Field(..., description="Updated audio processing plan")
-    next_step_index: Optional[int] = Field(None, description="Index of the next step to execute")
-    is_complete: bool = Field(default=False, description="Whether the task is complete")
-    replanning_needed: bool = Field(default=False, description="Whether replanning is needed")
-    checkpoint_index: Optional[int] = Field(None, description="Index to set as checkpoint if successful")
+    """Response from the planner agent."""
+    updated_plan: AudioPlan
+    replanning_needed: bool = False
+    checkpoint_index: Optional[int] = None
+    
+    model_config = {
+        "json_schema_extra": {"additionalProperties": True}
+    }
 
 
 # Initialize Planner Agent
 planner_agent = Agent(
-    'gemini-2.0-flash',
+    "gemini-2.0-flash",  # Using Gemini model
     deps_type=PlannerDependencies,
     result_type=PlannerResponse,
-    system_prompt="""
-You are the Planner Agent in a multi-agent system for audio processing.
-
-Core Responsibilities:
-1. Initial Planning: Create a step-by-step plan in a structured format based on the user's task description
-2. Plan Monitoring & Updating: Track execution progress, update step statuses
-3. Recovery & Replanning: Handle execution failures by modifying the plan when needed
-4. Determine Next Steps: Select the next actionable step for the Execution Agent
-
-Focus on creating logical sequences of audio processing steps using the available tools. 
-Your plans should track the state of the audio throughout the process, setting checkpoints after successful steps.
-"""
+    system_prompt=(
+        "You are an expert audio processing planner. "
+        "Your task is to create and maintain a detailed plan for audio processing tasks. "
+        "You should break down complex tasks into simple steps that can be executed with Python code. "
+        "For each step, provide a clear description and the expected output."
+    )
 )
 
 

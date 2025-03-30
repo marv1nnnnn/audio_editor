@@ -7,7 +7,7 @@ import argparse
 import logfire
 from pathlib import Path
 
-from .coordinator import AudioProcessingCoordinator
+from audio_editor.agents.coordinator import AudioProcessingCoordinator
 
 
 async def process_audio_file(
@@ -127,8 +127,7 @@ def main():
     args = parser.parse_args()
     
     # Configure logging with the specified level
-    log_level = getattr(logfire.LogLevel, args.log_level.upper(), logfire.LogLevel.INFO)
-    logfire.configure(level=log_level)
+    logfire.configure()
     
     # Process the audio file with new options
     try:

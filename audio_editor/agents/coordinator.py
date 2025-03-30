@@ -11,7 +11,7 @@ import inspect
 
 from pydantic_ai.usage import Usage, UsageLimits
 
-import audio_tools
+from audio_editor import audio_tools
 from .models import (
     AudioPlan, AudioInput, ExecutionResult, ToolDefinition,
     PlanStep, StepStatus, CritiqueResult, QAResult, ErrorAnalysisResult,
@@ -56,11 +56,12 @@ class AudioProcessingCoordinator:
         # Create user feedback handler
         self.feedback_handler = ConsoleUserFeedbackHandler(interactive=interactive)
         
+        # Create context first, then set feedback handler
         self.context = AudioProcessingContext.create(
             workspace_dir=Path(self.working_dir),
-            model_name=model_name,
-            user_feedback_handler=self.feedback_handler
+            model_name=model_name
         )
+        self.context.user_feedback_handler = self.feedback_handler
         
         self.tool_definitions = self._create_tool_definitions()
         self.mcp = MCPCodeExecutor(self.working_dir)

@@ -1,62 +1,19 @@
-[build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "audio_editor"
+name = "audio-editor"
 version = "0.1.0"
-description = "An intelligent audio processing tool powered by Gemini AI"
+description = "Add your description here"
 readme = "README.md"
-authors = [
-    {name = "Project Contributors"}
-]
-license = {text = "MIT"}
-requires-python = ">=3.10"
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-    "Topic :: Multimedia :: Sound/Audio",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
-]
-
+requires-python = ">=3.11"
 dependencies = [
-    "numpy>=2.1.0",
-    "scipy>=1.11.0",
+    "audiomentations>=0.35.0",
+    "diffusers>=0.32.2",
+    "google-genai>=1.8.0",
+    "google-generativeai>=0.8.4",
+    "logfire>=3.11.0",
+    "numpy==2.1.0",
+    "pydantic-ai>=0.0.46",
+    "pyloudnorm>=0.1.1",
+    "scipy>=1.15.2",
     "torch>=2.6.0",
     "torchaudio>=2.6.0",
-    "torchvision>=0.21.0",
-    "diffusers>=0.21.0",
-    "pyloudnorm>=0.1.1",
-    "agno>=1.2.3",
-    "audiomentations>=0.30.0",
-    "torchlibrosa>=0.1.0",
-    "PyYAML==6.0.1",
-    "transformers==4.46.1",
-    "importlib_resources==5.11.0",
-    "accelerate==1.5.2",
-    "google-genai==1.8.0",
-    "pydantic-ai==0.0.46",
-    "logfire==3.11.0",
-    "pyroomacoustics==0.8.3",
 ]
-
-[project.urls]
-"Homepage" = "https://github.com/yourusername/audio_editor"
-"Bug Tracker" = "https://github.com/yourusername/audio_editor/issues"
-
-[project.scripts]
-audio-editor = "audio_editor.agents.main:main"
-
-[tool.setuptools]
-packages = ["audio_editor", "audio_editor.agents", "audio_editor.audio_tools"]
-
-
-[tool.ruff]
-line-length = 88
-target-version = "py39"
-select = ["E", "F", "I"]
-ignore = []
-
-[tool.ruff.isort]
-known-first-party = ["audio_editor"] 

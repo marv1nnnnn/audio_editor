@@ -13,31 +13,28 @@ from .dependencies import CritiqueAgentDependencies
 
 
 class CritiqueResponse(BaseModel):
-    """Response model for the Critique Agent."""
-    is_approved: bool = Field(..., description="Whether the plan or code is approved")
-    suggestions: List[str] = Field(default_factory=list, description="Suggestions for improvement")
-    improved_version: Optional[str] = Field(None, description="Improved version if not approved")
-    reasoning: str = Field(..., description="Reasoning behind the critique")
-    critique_type: str = Field(..., description="Type of critique (plan or code)")
+    """Response from the critique agent."""
+    is_approved: bool
+    suggestions: List[str] = []
+    improved_version: Optional[str] = None
+    reasoning: str
+    critique_type: str
+    
+    model_config = {
+        "json_schema_extra": {"additionalProperties": True}
+    }
 
 
-# Initialize Critique Agent - using a more powerful model for better critique
+# Initialize Critique Agent - using a more powerful model for deep analysis
 critique_agent = Agent(
     'gemini-2.0-pro',  # Using a more powerful model for deep analysis
     deps_type=CritiqueAgentDependencies,
     result_type=CritiqueResponse,
-    system_prompt="""
-You are the Critique Agent in a multi-agent system for audio processing.
-
-Core Responsibilities:
-1. Plan Quality Assessment: Review audio processing plans for logical flow, efficiency, and completeness
-2. Code Review: Assess generated code for correctness, efficiency, and robustness
-3. Improvement Suggestions: Provide constructive feedback and specific improvement recommendations
-4. Quality Enforcement: Help maintain high standards across the entire audio processing workflow
-
-Your goal is to act as a critical reviewer before execution happens, identifying potential issues 
-before they occur and suggesting improvements. You should be thorough but constructive in your feedback.
-"""
+    system_prompt=(
+        "You are an expert reviewer for audio processing plans and code. "
+        "Your task is to analyze plans and code for quality, correctness, and efficiency. "
+        "Provide detailed feedback and suggestions for improvement."
+    )
 )
 
 

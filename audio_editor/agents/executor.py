@@ -14,29 +14,25 @@ from .dependencies import ExecutorDependencies
 
 
 class CodeGenerationResponse(BaseModel):
-    """Response model for the Execution Agent."""
-    generated_code: str = Field(..., description="Generated Python code for execution")
-    persistent_failure: bool = Field(default=False, description="Whether the step has persistently failed")
-    retry_count: int = Field(default=0, description="Number of retries attempted")
+    """Response from the code generator."""
+    generated_code: str
+    expected_output_path: Optional[str] = None
+    
+    model_config = {
+        "json_schema_extra": {"additionalProperties": True}
+    }
 
 
 # Initialize Execution Agent
 executor_agent = Agent(
-    'gemini-2.0-flash',
+    "gemini-2.0-flash",
     deps_type=ExecutorDependencies,
     result_type=CodeGenerationResponse,
-    system_prompt="""
-You are the Execution Agent in a multi-agent system for audio processing.
-
-Core Responsibilities:
-1. Code Generation: Create Python code to execute a specific step in the audio processing plan
-2. Code Refinement: Handle execution failures by fixing errors in the generated code
-3. Retry Management: Track retry attempts for failed steps and signal persistent failures
-
-You will receive a specific step from the plan and must generate valid Python code to execute that step. 
-The code should use only the available tools and their parameters correctly.
-If execution fails, you will analyze the error and modify the code to address the issue.
-"""
+    system_prompt=(
+        "You are an expert audio processing code generator. "
+        "Your task is to generate Python code to process audio files based on the provided plan step. "
+        "Focus on writing clean, efficient code that uses the available audio processing tools."
+    )
 )
 
 
