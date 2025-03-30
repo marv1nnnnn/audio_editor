@@ -18,60 +18,24 @@ class StepStatus(str, Enum):
 class PlanStep(BaseModel):
     """A step in the audio processing plan."""
     description: str
-    status: str = Field(default="PENDING", enum=["PENDING", "DONE", "FAILED"])
+    status: StepStatus = StepStatus.PENDING
     code: Optional[str] = None
     tool_name: str
-    tool_args: str = Field(default="{}")  # Store as JSON string instead of Dict
+    tool_args: str = Field(default="{}")  # Store as JSON string
     
-    model_config = ConfigDict(
-        extra='forbid',
-        json_schema_extra={
-            "type": "object",
-            "properties": {
-                "description": {"type": "string"},
-                "status": {"type": "string", "enum": ["PENDING", "DONE", "FAILED"]},
-                "code": {"type": "string", "nullable": True},
-                "tool_name": {"type": "string"},
-                "tool_args": {"type": "string"}
-            },
-            "required": ["description", "tool_name"]
-        }
-    )
+    model_config = ConfigDict(extra='forbid')
 
 
 class AudioPlan(BaseModel):
     """Plan for processing an audio file."""
     task_description: str
-    steps: List[PlanStep] = []
-    current_audio_path: str  # Change from Path to str for JSON compatibility
+    steps: List[Dict[str, Any]] = Field(default_factory=list)  # Store steps as dicts instead of PlanStep objects
+    current_audio_path: str  # Use str instead of Path
     completed_step_indices: List[int] = Field(default_factory=list)
     is_complete: bool = False
     checkpoint_indices: List[int] = Field(default_factory=list)
 
-    model_config = ConfigDict(
-        extra='forbid',
-        json_schema_extra={
-            "type": "object",
-            "properties": {
-                "task_description": {"type": "string"},
-                "steps": {
-                    "type": "array",
-                    "items": {"$ref": "#/definitions/PlanStep"}
-                },
-                "current_audio_path": {"type": "string"},
-                "completed_step_indices": {
-                    "type": "array",
-                    "items": {"type": "integer"}
-                },
-                "is_complete": {"type": "boolean"},
-                "checkpoint_indices": {
-                    "type": "array",
-                    "items": {"type": "integer"}
-                }
-            },
-            "required": ["task_description", "current_audio_path"]
-        }
-    )
+    model_config = ConfigDict(extra='forbid')
 
 
 class ExecutionResult(BaseModel):
@@ -98,13 +62,13 @@ class ToolDefinition(BaseModel):
     docstring: str
 
 
-class PlannerOutput(BaseModel):
-    """Output from the Planner Agent."""
-    updated_plan: AudioPlan
-    next_step_index: Optional[int] = None
-    is_complete: bool = False
+class PlannerResponse(BaseModel):
+    """Response from the planner agent."""
+    updated_plan: Dict[str, Any]  # Store as dict instead of AudioPlan
     replanning_needed: bool = False
     checkpoint_index: Optional[int] = None
+    
+    model_config = ConfigDict(extra='forbid')
 
 
 class ExecutorOutput(BaseModel):

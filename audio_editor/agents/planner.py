@@ -3,6 +3,7 @@ Planner Agent for the audio processing multi-agent system.
 """
 import logfire
 from typing import Optional, List, Dict, Any, TypeVar, Union
+import json
 
 from pydantic_ai import Agent, RunContext, ModelRetry
 from pydantic import BaseModel, Field, ConfigDict
@@ -76,7 +77,7 @@ def generate_initial_plan(
     ctx: RunContext[PlannerDependencies], 
     task_description: str,
     current_audio_path: str
-) -> AudioPlan:
+) -> Dict[str, Any]:
     """
     Generate the initial step-by-step plan based on the task description.
     
@@ -85,29 +86,32 @@ def generate_initial_plan(
         current_audio_path: Path to the input audio file
         
     Returns:
-        An AudioPlan with a sequence of PlanStep objects
+        A dictionary representing the initial plan
     """
     with logfire.span("generate_initial_plan", task=task_description):
         # Create an initial plan with an AUDIO_QA first step
         steps = []
         
         # Always start with audio analysis
-        analysis_step = PlanStep(
-            description=f"Analyze audio to understand its properties for the task: {task_description}",
-            status=StepStatus.PENDING,
-            tool_name="AUDIO_QA",
-            tool_args={
+        analysis_step = {
+            "description": f"Analyze audio to understand its properties for the task: {task_description}",
+            "status": "PENDING",
+            "tool_name": "AUDIO_QA",
+            "tool_args": json.dumps({
                 "wav_path": current_audio_path,
                 "task": f"Analyze this audio to understand its properties for the task: {task_description}"
-            }
-        )
+            })
+        }
         steps.append(analysis_step)
         
-        return AudioPlan(
-            task_description=task_description,
-            steps=steps,
-            current_audio_path=current_audio_path
-        )
+        return {
+            "task_description": task_description,
+            "steps": steps,
+            "current_audio_path": current_audio_path,
+            "completed_step_indices": [],
+            "is_complete": False,
+            "checkpoint_indices": []
+        }
 
 
 @planner_agent.tool
