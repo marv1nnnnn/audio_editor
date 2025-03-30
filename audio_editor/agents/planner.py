@@ -17,7 +17,10 @@ class PlannerResponse(BaseModel):
     replanning_needed: bool = False
     checkpoint_index: Optional[int] = None
     
-    model_config = {}
+    # Remove additionalProperties which is not supported by Gemini
+    # model_config = {
+    #     "json_schema_extra": {"additionalProperties": True}
+    # }
 
 
 # Initialize Planner Agent

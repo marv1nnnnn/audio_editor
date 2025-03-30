@@ -17,8 +17,6 @@ class CodeGenerationResponse(BaseModel):
     """Response from the code generator."""
     generated_code: str
     expected_output_path: Optional[str] = None
-    
-    model_config = {}
 
 
 # Initialize Execution Agent

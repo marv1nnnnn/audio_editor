@@ -19,8 +19,6 @@ class CritiqueResponse(BaseModel):
     improved_version: Optional[str] = None
     reasoning: str
     critique_type: str
-    
-    model_config = {}
 
 
 # Initialize Critique Agent - using a more powerful model for deep analysis

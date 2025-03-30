@@ -22,8 +22,6 @@ class ErrorAnalysisResponse(BaseModel):
     code_fixes: Optional[str] = None
     requires_replanning: bool = False
     confidence: float
-    
-    model_config = {}
 
 
 # Initialize Error Analyzer Agent

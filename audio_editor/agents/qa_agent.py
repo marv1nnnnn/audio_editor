@@ -20,8 +20,6 @@ class QAResponse(BaseModel):
     suggestions: List[str] = []
     metrics: Dict[str, Any] = {}
     reasoning: str
-    
-    model_config = {}
 
 
 # Initialize QA Agent

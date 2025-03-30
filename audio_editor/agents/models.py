@@ -22,8 +22,6 @@ class PlanStep(BaseModel):
     code: Optional[str] = None
     tool_name: str
     tool_args: dict = {}
-    
-    model_config = {}
 
 
 class AudioPlan(BaseModel):
@@ -34,8 +32,6 @@ class AudioPlan(BaseModel):
     completed_step_indices: List[int] = []
     is_complete: bool = False
     checkpoint_indices: List[int] = []
-    
-    model_config = {}
 
 
 class ExecutionResult(BaseModel):
@@ -46,16 +42,12 @@ class ExecutionResult(BaseModel):
     output_path: Optional[str] = None
     output_paths: Optional[List[str]] = None
     duration: float
-    
-    model_config = {}
 
 
 class AudioInput(BaseModel):
     """Representation of audio input with transcript."""
     transcript: str
     timestamp: float
-    
-    model_config = {}
 
 
 class ToolDefinition(BaseModel):
@@ -64,8 +56,6 @@ class ToolDefinition(BaseModel):
     description: str
     signature: str
     docstring: str
-    
-    model_config = {}
 
 
 class PlannerOutput(BaseModel):
@@ -75,8 +65,6 @@ class PlannerOutput(BaseModel):
     is_complete: bool = False
     replanning_needed: bool = False
     checkpoint_index: Optional[int] = None
-    
-    model_config = {}
 
 
 class ExecutorOutput(BaseModel):
@@ -85,8 +73,6 @@ class ExecutorOutput(BaseModel):
     generated_code: str
     persistent_failure: bool = False
     retry_count: int = 0
-    
-    model_config = {}
 
 # New models for the optimized workflow
 
@@ -97,8 +83,6 @@ class CritiqueResult(BaseModel):
     improved_version: Optional[str] = None
     reasoning: str
     critique_type: str
-    
-    model_config = {}
 
 
 class QAResult(BaseModel):
@@ -108,8 +92,6 @@ class QAResult(BaseModel):
     suggestions: List[str] = []
     metrics: Dict[str, Any] = {}
     reasoning: str
-    
-    model_config = {}
 
 
 class ErrorAnalysisResult(BaseModel):
@@ -120,8 +102,6 @@ class ErrorAnalysisResult(BaseModel):
     code_fixes: Optional[str] = None
     requires_replanning: bool = False
     confidence: float
-    
-    model_config = {}
 
 
 class UserFeedbackRequest(BaseModel):
@@ -131,13 +111,9 @@ class UserFeedbackRequest(BaseModel):
     options: Optional[List[str]] = None
     severity: str = "info"
     request_type: str
-    
-    model_config = {}
 
 
 class UserFeedbackResponse(BaseModel):
     """Response from the user to a feedback request."""
     response: str
-    timestamp: float
-    
-    model_config = {} 
+    timestamp: float 
