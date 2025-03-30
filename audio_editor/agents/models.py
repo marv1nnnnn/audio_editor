@@ -29,7 +29,7 @@ class PlanStep(BaseModel):
 class AudioPlan(BaseModel):
     """Plan for processing an audio file."""
     task_description: str
-    steps: List[Dict[str, Any]] = Field(default_factory=list)  # Store steps as dicts instead of PlanStep objects
+    steps: List[PlanStep] = Field(default_factory=list)
     current_audio_path: str  # Use str instead of Path
     completed_step_indices: List[int] = Field(default_factory=list)
     is_complete: bool = False
@@ -47,24 +47,33 @@ class ExecutionResult(BaseModel):
     output_paths: Optional[List[str]] = None
     duration: float
 
+    model_config = ConfigDict(extra='forbid')
+
 
 class AudioInput(BaseModel):
     """Representation of audio input with transcript."""
     transcript: str
     timestamp: float
+    
+    model_config = ConfigDict(extra='forbid')
 
 
 class ToolDefinition(BaseModel):
     """Definition of a tool available to the agents."""
-    name: str
-    description: str
-    signature: str
-    docstring: str
+    name: str = Field(description="Name of the tool")
+    description: str = Field(description="Short description of the tool")
+    signature: str = Field(description="Function signature of the tool")
+    docstring: str = Field(description="Full documentation of the tool")
+    
+    model_config = ConfigDict(
+        extra='forbid'
+        # Remove json_schema_extra, Pydantic generates schema from fields
+    )
 
 
 class PlannerResponse(BaseModel):
     """Response from the planner agent."""
-    updated_plan: Dict[str, Any]  # Store as dict instead of AudioPlan
+    updated_plan: AudioPlan
     replanning_needed: bool = False
     checkpoint_index: Optional[int] = None
     
@@ -77,6 +86,8 @@ class ExecutorOutput(BaseModel):
     generated_code: str
     persistent_failure: bool = False
     retry_count: int = 0
+    
+    model_config = ConfigDict(extra='forbid')
 
 # New models for the optimized workflow
 
@@ -87,6 +98,8 @@ class CritiqueResult(BaseModel):
     improved_version: Optional[str] = None
     reasoning: str
     critique_type: str
+    
+    model_config = ConfigDict(extra='forbid')
 
 
 class QAResult(BaseModel):
@@ -96,6 +109,8 @@ class QAResult(BaseModel):
     suggestions: List[str] = []
     metrics: Dict[str, Any] = {}
     reasoning: str
+    
+    model_config = ConfigDict(extra='forbid')
 
 
 class ErrorAnalysisResult(BaseModel):
@@ -106,6 +121,8 @@ class ErrorAnalysisResult(BaseModel):
     code_fixes: Optional[str] = None
     requires_replanning: bool = False
     confidence: float
+    
+    model_config = ConfigDict(extra='forbid')
 
 
 class UserFeedbackRequest(BaseModel):
@@ -115,9 +132,13 @@ class UserFeedbackRequest(BaseModel):
     options: Optional[List[str]] = None
     severity: str = "info"
     request_type: str
+    
+    model_config = ConfigDict(extra='forbid')
 
 
 class UserFeedbackResponse(BaseModel):
     """Response from the user to a feedback request."""
     response: str
-    timestamp: float 
+    timestamp: float
+    
+    model_config = ConfigDict(extra='forbid') 

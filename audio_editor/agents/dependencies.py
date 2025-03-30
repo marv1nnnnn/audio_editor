@@ -1,11 +1,11 @@
 """
 Dependencies for the audio processing multi-agent system.
 """
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Callable, Union, Any
-
+from dataclasses import dataclass
 import inspect
+from pydantic import BaseModel, Field, ConfigDict
 from audio_editor import audio_tools
 
 from .models import (
@@ -15,13 +15,24 @@ from .models import (
 )
 
 
-@dataclass
-class AudioProcessingContext:
+class AudioProcessingContext(BaseModel):
     """Context for audio processing, shared between agents."""
-    workspace_dir: Path
-    available_tools: Dict[str, Callable]
+    workspace_dir: str  # Use str instead of Path
+    available_tools: Dict[str, Callable] = Field(  # Store actual function objects
+        description="Available audio processing tools",
+        exclude=True  # Exclude from schema since functions can't be serialized
+    )
     model_name: str = "gemini-2.0-flash"
-    user_feedback_handler: Optional[Callable[[UserFeedbackRequest], UserFeedbackResponse]] = None
+    user_feedback_handler: Optional[Callable[[UserFeedbackRequest], UserFeedbackResponse]] = Field(
+        default=None,
+        description="Handler for user feedback requests",
+        exclude=True  # Exclude from schema since functions can't be serialized
+    )
+    
+    model_config = ConfigDict(
+        extra='forbid',
+        arbitrary_types_allowed=True  # Allow Callable types
+    )
     
     @classmethod
     def create(cls, workspace_dir: Path, model_name: str = "gemini-2.0-flash") -> "AudioProcessingContext":
@@ -30,26 +41,89 @@ class AudioProcessingContext:
         for name, func in inspect.getmembers(audio_tools):
             # Tools are uppercase functions
             if inspect.isfunction(func) and name.isupper() and not name.startswith("_"):
-                tools[name] = func
+                tools[name] = func  # Store the actual function object
                 
         return cls(
-            workspace_dir=workspace_dir,
+            workspace_dir=str(workspace_dir),
             available_tools=tools,
             model_name=model_name
         )
 
+    def get_tool_signatures(self) -> Dict[str, str]:
+        """Get the signatures of available tools as strings."""
+        return {
+            name: str(inspect.signature(func))
+            for name, func in self.available_tools.items()
+        }
 
-@dataclass
-class PlannerDependencies:
+
+class SerializableAudioProcessingContext(BaseModel):
+    """Serializable subset of AudioProcessingContext, excluding callables."""
+    workspace_dir: str
+    model_name: str = "gemini-2.0-flash"
+    
+    model_config = ConfigDict(extra='forbid')
+
+
+class PlannerDependencies(BaseModel):
     """Dependencies for the Planner Agent."""
-    context: AudioProcessingContext
-    task_description: str
-    tool_definitions: List[ToolDefinition]
-    audio_input: AudioInput
-    current_plan: Optional[AudioPlan] = None
-    execution_result: Optional[ExecutionResult] = None
-    critique_result: Optional[CritiqueResult] = None
-    user_feedback: Optional[UserFeedbackResponse] = None
+    context: SerializableAudioProcessingContext = Field(
+        description="Audio processing context"
+    )
+    task_description: str = Field(description="Description of the audio processing task")
+    tool_definitions: List[ToolDefinition] = Field(description="List of available tools")
+    audio_input: AudioInput = Field(description="Audio input information")
+    current_plan: Optional[AudioPlan] = Field(
+        default=None,
+        description="Current audio plan"
+    )
+    execution_result: Optional[ExecutionResult] = Field(
+        default=None,
+        description="Result of execution"
+    )
+    critique_result: Optional[CritiqueResult] = Field(
+        default=None,
+        description="Result of critique"
+    )
+    user_feedback: Optional[UserFeedbackResponse] = Field(
+        default=None,
+        description="User feedback"
+    )
+    
+    model_config = ConfigDict(
+        extra='forbid',
+        arbitrary_types_allowed=True  # Allow ToolDefinition objects
+    )
+
+    @classmethod
+    def from_models(
+        cls,
+        context: AudioProcessingContext,
+        task_description: str,
+        tool_definitions: List[ToolDefinition],
+        audio_input: AudioInput,
+        current_plan: Optional[AudioPlan] = None,
+        execution_result: Optional[ExecutionResult] = None,
+        critique_result: Optional[CritiqueResult] = None,
+        user_feedback: Optional[UserFeedbackResponse] = None
+    ) -> "PlannerDependencies":
+        """Create PlannerDependencies from model instances."""
+        # Create serializable context with only serializable fields
+        serializable_context = SerializableAudioProcessingContext(
+            workspace_dir=context.workspace_dir,
+            model_name=context.model_name
+        )
+        
+        return cls(
+            context=serializable_context,
+            task_description=task_description,
+            tool_definitions=tool_definitions,  # Pass ToolDefinition objects directly
+            audio_input=audio_input,            # Pass AudioInput object directly
+            current_plan=current_plan,          # Pass AudioPlan object directly
+            execution_result=execution_result,  # Pass ExecutionResult object directly
+            critique_result=critique_result,    # Pass CritiqueResult object directly
+            user_feedback=user_feedback         # Pass UserFeedbackResponse object directly
+        )
 
 
 @dataclass

@@ -138,7 +138,7 @@ class AudioProcessingCoordinator:
             )
             
             # Initialize the planner dependencies
-            planner_deps = PlannerDependencies(
+            planner_deps = PlannerDependencies.from_models(
                 context=self.context,
                 task_description=task_description,
                 tool_definitions=self.tool_definitions,
@@ -147,20 +147,7 @@ class AudioProcessingCoordinator:
 
             # --- Debug Log Start ---
             try:
-                import json
-                # Use vars() or manually build dict if vars() doesn't work well
-                planner_deps_dict = {}
-                for attr, value in vars(planner_deps).items():
-                    # Attempt to represent complex objects simply for logging
-                    if hasattr(value, 'model_dump'): # Check if it's a Pydantic model
-                        planner_deps_dict[attr] = value.model_dump()
-                    elif isinstance(value, (list, tuple)):
-                         planner_deps_dict[attr] = [repr(item) for item in value[:5]] # Log first few items
-                    else:
-                        planner_deps_dict[attr] = repr(value) # Use repr for others
-
-                planner_deps_repr = json.dumps(planner_deps_dict, indent=2, default=str)
-                logfire.debug(f"PlannerDependencies before initial run:\n{planner_deps_repr}")
+                logfire.debug(f"PlannerDependencies before initial run:\n{json.dumps(planner_deps.model_dump(), indent=2, default=str)}")
             except Exception as e:
                 logfire.error(f"Failed to serialize planner_deps for logging: {e}")
             # --- Debug Log End ---

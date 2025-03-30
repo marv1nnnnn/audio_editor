@@ -8,28 +8,26 @@ import json
 from pydantic_ai import Agent, RunContext, ModelRetry
 from pydantic import BaseModel, Field, ConfigDict
 
-from .models import AudioPlan, PlannerOutput, StepStatus, PlanStep, ExecutionResult, ErrorAnalysisResult
+from .models import AudioPlan, StepStatus, PlanStep, ExecutionResult, ErrorAnalysisResult
 from .dependencies import PlannerDependencies
 
 
 class PlannerResponse(BaseModel):
     """Response from the planner agent."""
-    updated_plan: AudioPlan
-    replanning_needed: bool = False
-    checkpoint_index: Optional[int] = None
-    
-    model_config = ConfigDict(
-        extra='forbid',
-        json_schema_extra={
-            "type": "object",
-            "properties": {
-                "updated_plan": {"$ref": "#/definitions/AudioPlan"},
-                "replanning_needed": {"type": "boolean"},
-                "checkpoint_index": {"type": "integer", "nullable": True}
-            },
-            "required": ["updated_plan", "replanning_needed"]
-        }
+    updated_plan: AudioPlan = Field(
+        description="The updated audio processing plan"
     )
+    replanning_needed: bool = Field(
+        default=False,
+        description="Whether replanning is needed"
+    )
+    checkpoint_index: Optional[int] = Field(
+        default=None,
+        description="Index of the last checkpoint"
+    )
+    
+    model_config = ConfigDict(extra='forbid')
+    # Remove json_schema_extra, Pydantic generates schema from fields
 
 
 # Initialize Planner Agent
@@ -77,7 +75,7 @@ def generate_initial_plan(
     ctx: RunContext[PlannerDependencies], 
     task_description: str,
     current_audio_path: str
-) -> Dict[str, Any]:
+) -> PlannerResponse:
     """
     Generate the initial step-by-step plan based on the task description.
     
@@ -86,32 +84,38 @@ def generate_initial_plan(
         current_audio_path: Path to the input audio file
         
     Returns:
-        A dictionary representing the initial plan
+        A PlannerResponse containing the initial plan
     """
     with logfire.span("generate_initial_plan", task=task_description):
         # Create an initial plan with an AUDIO_QA first step
         steps = []
         
         # Always start with audio analysis
-        analysis_step = {
-            "description": f"Analyze audio to understand its properties for the task: {task_description}",
-            "status": "PENDING",
-            "tool_name": "AUDIO_QA",
-            "tool_args": json.dumps({
+        analysis_step = PlanStep(
+            description=f"Analyze audio to understand its properties for the task: {task_description}",
+            status=StepStatus.PENDING,
+            tool_name="AUDIO_QA",
+            tool_args=json.dumps({
                 "wav_path": current_audio_path,
                 "task": f"Analyze this audio to understand its properties for the task: {task_description}"
             })
-        }
+        )
         steps.append(analysis_step)
         
-        return {
-            "task_description": task_description,
-            "steps": steps,
-            "current_audio_path": current_audio_path,
-            "completed_step_indices": [],
-            "is_complete": False,
-            "checkpoint_indices": []
-        }
+        initial_plan = AudioPlan(
+            task_description=task_description,
+            steps=steps,
+            current_audio_path=current_audio_path,
+            completed_step_indices=[],
+            is_complete=False,
+            checkpoint_indices=[]
+        )
+        
+        return PlannerResponse(
+            updated_plan=initial_plan,
+            replanning_needed=False,
+            checkpoint_index=None
+        )
 
 
 @planner_agent.tool
@@ -127,15 +131,15 @@ def update_plan_after_execution(
     Args:
         plan: Current audio processing plan
         step_index: Index of the step that was executed
-        execution_result: Result of the step execution (as ExecutionResult object)
+        execution_result: Result of the step execution
         
     Returns:
         An updated plan with the next step to execute
     """
     with logfire.span("update_plan_after_execution", step_index=step_index):
-        updated_plan = plan.model_copy(deep=True)
+        updated_plan = plan.model_copy(deep=True)  # Make a deep copy
         
-        # Update the status of the current step using the model attribute
+        # Update the status of the current step
         if execution_result.status == "SUCCESS":
             updated_plan.steps[step_index].status = StepStatus.DONE
             updated_plan.completed_step_indices.append(step_index)
@@ -155,6 +159,7 @@ def update_plan_after_execution(
                 
         # Check if the plan is complete
         is_complete = all(step.status != StepStatus.PENDING for step in updated_plan.steps)
+        updated_plan.is_complete = is_complete
         
         return PlannerResponse(
             updated_plan=updated_plan,
@@ -180,25 +185,17 @@ def replan_from_checkpoint(
         A revised plan with new steps starting from the checkpoint
     """
     with logfire.span("replan_from_checkpoint", checkpoint_index=checkpoint_index):
-        updated_plan = plan.model_copy(deep=True)
+        updated_plan = plan.model_copy(deep=True)  # Make a deep copy
         
         # Preserve all steps up to and including the checkpoint
         preserved_steps = updated_plan.steps[:checkpoint_index + 1]
         
-        # Create a new AudioPlan with only the preserved steps
+        # Update the plan
         updated_plan.steps = preserved_steps
+        updated_plan.is_complete = False
         
-        # Find the next step to execute (if any preserved steps are still pending)
-        next_step_index = None
-        for i, step in enumerate(updated_plan.steps):
-            if step.status == StepStatus.PENDING and i not in updated_plan.completed_step_indices:
-                next_step_index = i
-                break
-                
         return PlannerResponse(
             updated_plan=updated_plan,
-            next_step_index=next_step_index,
-            is_complete=False,
             replanning_needed=False,
             checkpoint_index=None
         ) 
