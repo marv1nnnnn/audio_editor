@@ -5,7 +5,7 @@ from enum import Enum
 from pathlib import Path
 from typing import List, Optional, Union, Dict, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class StepStatus(str, Enum):
@@ -22,6 +22,9 @@ class PlanStep(BaseModel):
     code: Optional[str] = None
     tool_name: str
     tool_args: dict = {}
+    
+    # Explicitly forbid extra properties to try and satisfy Gemini's schema requirements
+    model_config = ConfigDict(extra='forbid')
 
 
 class AudioPlan(BaseModel):
