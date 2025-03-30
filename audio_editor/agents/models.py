@@ -21,7 +21,7 @@ class PlanStep(BaseModel):
     status: StepStatus = StepStatus.PENDING
     code: Optional[str] = None
     tool_name: str
-    tool_args: dict = {}
+    tool_args: Dict[str, Any] = Field(default_factory=dict)
     
     # Explicitly forbid extra properties to try and satisfy Gemini's schema requirements
     model_config = ConfigDict(extra='forbid')

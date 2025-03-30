@@ -8,6 +8,7 @@ import logfire
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Callable, Tuple
 import inspect
+import json
 
 from pydantic_ai.usage import Usage, UsageLimits
 
@@ -143,14 +144,26 @@ class AudioProcessingCoordinator:
                 tool_definitions=self.tool_definitions,
                 audio_input=audio_input
             )
-            
+
+            # --- Debug Log Start ---
+            try:
+                planner_deps_repr = json.dumps(planner_deps.model_dump(), indent=2, default=str)
+                logfire.debug(f"PlannerDependencies before initial run:\n{planner_deps_repr}")
+            except Exception as e:
+                logfire.error(f"Failed to serialize planner_deps for logging: {e}")
+            # --- Debug Log End ---
+
             # Generate initial plan
-            planner_result = await planner_agent.run(
-                f"Create an initial plan for the task: {task_description}",
-                deps=planner_deps,
-                usage=self.usage,
-                usage_limits=self.usage_limits
-            )
+            try:
+                planner_result = await planner_agent.run(
+                    f"Create an initial plan for the task: {task_description}",
+                    deps=planner_deps,
+                    usage=self.usage,
+                    usage_limits=self.usage_limits
+                )
+            except Exception as e:
+                logfire.error(f"Audio processing failed during initial planner run: {e}", exc_info=True)
+                raise  # Re-raise the exception after logging
             
             plan = await self._call_planner_tool(
                 "generate_initial_plan",
