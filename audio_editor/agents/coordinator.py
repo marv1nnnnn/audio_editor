@@ -108,16 +108,7 @@ class AudioProcessingCoordinator:
         audio_file_path: str,
         audio_transcript: str = ""
     ) -> str:
-        """Process audio using the multi-agent system.
-        
-        Args:
-            task_description: Description of the task to perform
-            audio_file_path: Path to the audio file to process
-            audio_transcript: Transcript of the audio file (if any)
-            
-        Returns:
-            Path to the final processed audio file
-        """
+        """Process audio using the multi-agent system."""
         with logfire.span("process_audio", task=task_description, file=audio_file_path):
             start_time = time.time()
             
@@ -130,6 +121,11 @@ class AudioProcessingCoordinator:
                 import shutil
                 shutil.copy(audio_file_path, working_input)
                 logfire.info(f"Copied {audio_file_path} to {working_input}")
+            
+            # Log working directory state
+            logfire.debug(f"Working directory contents before processing:")
+            for file in os.listdir(self.working_dir):
+                logfire.debug(f"  - {file}")
             
             # Create initial audio input
             audio_input = AudioInput(
@@ -164,18 +160,33 @@ class AudioProcessingCoordinator:
                 logfire.error(f"Audio processing failed during initial planner run: {e}", exc_info=True)
                 raise  # Re-raise the exception after logging
             
-            plan = await self._call_planner_tool(
-                "generate_initial_plan",
-                {
-                    "task_description": task_description,
-                    "current_audio_path": working_input
-                },
-                planner_result
-            )
+            # Get the initial plan from the planner tool
+            try:
+                plan = await self._call_planner_tool(
+                    "generate_initial_plan",
+                    {
+                        "task_description": task_description,
+                        "current_audio_path": working_input
+                    },
+                    planner_result
+                )
+                logfire.debug(f"Initial plan generated:")
+                logfire.debug(f"  - Task: {plan.task_description}")
+                logfire.debug(f"  - Current audio path: {plan.current_audio_path}")
+                logfire.debug(f"  - Number of steps: {len(plan.steps)}")
+                for i, step in enumerate(plan.steps):
+                    logfire.debug(f"  - Step {i+1}: {step.description} (Tool: {step.tool_name})")
+            except Exception as e:
+                logfire.error(f"Failed to generate initial plan: {e}", exc_info=True)
+                raise
             
             # If critique is enabled, review the initial plan
             if self.enable_critique:
-                plan = await self._critique_plan(plan, task_description)
+                try:
+                    plan = await self._critique_plan(plan, task_description)
+                except Exception as e:
+                    logfire.error(f"Plan critique failed: {e}", exc_info=True)
+                    raise
             
             # Process until complete
             max_iterations = 25
@@ -184,6 +195,18 @@ class AudioProcessingCoordinator:
             while iteration < max_iterations and not plan.is_complete:
                 iteration += 1
                 logfire.info(f"Starting iteration {iteration}/{max_iterations}")
+                logfire.debug(f"Current plan state:")
+                logfire.debug(f"  - Current audio path: {plan.current_audio_path}")
+                logfire.debug(f"  - Completed steps: {plan.completed_step_indices}")
+                logfire.debug(f"  - Checkpoints: {plan.checkpoint_indices}")
+                
+                # Verify current audio file exists
+                if not os.path.exists(plan.current_audio_path):
+                    logfire.error(f"Current audio file not found: {plan.current_audio_path}")
+                    logfire.debug("Working directory contents:")
+                    for file in os.listdir(self.working_dir):
+                        logfire.debug(f"  - {file}")
+                    raise FileNotFoundError(f"Current audio file not found: {plan.current_audio_path}")
                 
                 # Find next step
                 next_step_index = self._find_next_step(plan)
@@ -192,8 +215,31 @@ class AudioProcessingCoordinator:
                     plan.is_complete = True
                     break
                 
+                # Log step details
+                step = plan.steps[next_step_index]
+                logfire.info(f"Executing step {next_step_index + 1}: {step.description}")
+                logfire.debug(f"Step details:")
+                logfire.debug(f"  - Tool: {step.tool_name}")
+                logfire.debug(f"  - Args: {step.tool_args}")
+                
                 # Execute the step using the executor and MCP
-                plan, execution_result = await self._execute_step(plan, next_step_index)
+                try:
+                    plan, execution_result = await self._execute_step(plan, next_step_index)
+                    logfire.debug(f"Step execution result:")
+                    logfire.debug(f"  - Status: {execution_result.status}")
+                    logfire.debug(f"  - Output path: {execution_result.output_path}")
+                    if execution_result.error_message:
+                        logfire.debug(f"  - Error: {execution_result.error_message}")
+                except Exception as e:
+                    logfire.error(f"Step execution failed: {e}", exc_info=True)
+                    raise
+                
+                # Verify output file exists after step execution
+                if execution_result.output_path and not os.path.exists(execution_result.output_path):
+                    logfire.error(f"Output file not found after step execution: {execution_result.output_path}")
+                    logfire.debug("Working directory contents:")
+                    for file in os.listdir(self.working_dir):
+                        logfire.debug(f"  - {file}")
                 
                 # If this is the final step and QA is enabled, perform quality assessment
                 if plan.is_complete and self.enable_qa:
@@ -227,7 +273,8 @@ class AudioProcessingCoordinator:
                                     usage_limits=self.usage_limits
                                 )
                                 
-                                planner_response = await self._call_planner_tool(
+                                # Get the updated plan from the planner tool
+                                plan = await self._call_planner_tool(
                                     "replan_from_checkpoint",
                                     {
                                         "plan": plan,
@@ -235,8 +282,6 @@ class AudioProcessingCoordinator:
                                     },
                                     planner_result
                                 )
-                                
-                                plan = planner_response.updated_plan
                                 plan.is_complete = False
                                 logfire.info(f"Replanned from checkpoint at step {last_checkpoint + 1} based on QA feedback")
                                 continue
@@ -252,13 +297,14 @@ class AudioProcessingCoordinator:
                 )
                 
                 planner_result = await planner_agent.run(
-                    f"Update the plan after executing step {next_step_index + 1}",
+                    f"Update plan after executing step {next_step_index + 1}",
                     deps=planner_deps,
                     usage=self.usage,
                     usage_limits=self.usage_limits
                 )
                 
-                planner_response = await self._call_planner_tool(
+                # Get the updated plan from the planner tool
+                plan = await self._call_planner_tool(
                     "update_plan_after_execution",
                     {
                         "plan": plan,
@@ -267,61 +313,32 @@ class AudioProcessingCoordinator:
                     },
                     planner_result
                 )
-                
-                # Update plan from planner response
-                plan = planner_response.updated_plan
-                
-                # Set a checkpoint if specified
-                if planner_response.checkpoint_index is not None:
-                    if planner_response.checkpoint_index not in plan.checkpoint_indices:
-                        plan.checkpoint_indices.append(planner_response.checkpoint_index)
-                        logfire.info(f"Set checkpoint at step {planner_response.checkpoint_index + 1}")
-                
-                # Handle replanning if needed
-                if planner_response.replanning_needed and plan.checkpoint_indices:
-                    last_checkpoint = max(plan.checkpoint_indices)
-                    
-                    planner_result = await planner_agent.run(
-                        f"Replan from checkpoint at step {last_checkpoint + 1}",
-                        deps=planner_deps,
-                        usage=self.usage,
-                        usage_limits=self.usage_limits
-                    )
-                    
-                    planner_response = await self._call_planner_tool(
-                        "replan_from_checkpoint",
-                        {
-                            "plan": plan,
-                            "checkpoint_index": last_checkpoint
-                        },
-                        planner_result
-                    )
-                    
-                    plan = planner_response.updated_plan
-                    logfire.info(f"Replanned from checkpoint at step {last_checkpoint + 1}")
             
-            # Get the final result path
-            final_result_path = self._get_final_result_path(plan)
+            # Get and verify final output path
+            final_path = self._get_final_result_path(plan)
+            if not os.path.exists(final_path):
+                logfire.error(f"Final output file not found: {final_path}")
+                logfire.debug("Working directory contents:")
+                for file in os.listdir(self.working_dir):
+                    logfire.debug(f"  - {file}")
+                raise FileNotFoundError(f"Final output file not found: {final_path}")
             
-            logfire.info(
-                f"Audio processing completed in {time.time() - start_time:.2f}s, "
-                f"{iteration} iterations, result: {final_result_path}"
-            )
-            
-            return final_result_path
+            logfire.info(f"Audio processing completed in {time.time() - start_time:.2f}s")
+            return final_path
     
     async def _call_planner_tool(
         self, 
         tool_name: str, 
         tool_args: Dict[str, Any],
         planner_result: Any
-    ) -> Any:
+    ) -> AudioPlan:
         """Call a planner tool with arguments and return its result."""
         with logfire.span(f"call_planner_tool_{tool_name}"):
             for message in planner_result.all_messages():
                 for part in message.parts:
                     if hasattr(part, "tool_name") and part.tool_name == tool_name:
-                        return planner_result.data
+                        # Return the AudioPlan from the PlannerResponse
+                        return planner_result.data.updated_plan
             
             raise ValueError(f"Planner did not call expected tool: {tool_name}")
     

@@ -24,7 +24,7 @@ class QAResponse(BaseModel):
 
 # Initialize QA Agent
 qa_agent = Agent(
-    'gemini-2.0-pro',  # Using a more powerful model for better quality assessment
+    'gemini-2.0-flash',  # Using a more powerful model for better quality assessment
     deps_type=QAAgentDependencies,
     result_type=QAResponse,
     system_prompt=(

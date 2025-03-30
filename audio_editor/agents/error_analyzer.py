@@ -26,7 +26,7 @@ class ErrorAnalysisResponse(BaseModel):
 
 # Initialize Error Analyzer Agent
 error_analyzer_agent = Agent(
-    'gemini-2.0-pro',  # Using a more powerful model for better error analysis
+    'gemini-2.0-flash',  # Using a more powerful model for better error analysis
     deps_type=ErrorAnalysisDependencies,
     result_type=ErrorAnalysisResponse,
     system_prompt=(

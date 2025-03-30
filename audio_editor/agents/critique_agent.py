@@ -4,6 +4,7 @@ This agent reviews plans and code for quality, efficiency, and correctness.
 """
 import logfire
 from typing import List, Optional
+import os
 
 from pydantic_ai import Agent, RunContext, ModelRetry
 from pydantic import BaseModel, Field
@@ -23,7 +24,7 @@ class CritiqueResponse(BaseModel):
 
 # Initialize Critique Agent - using a more powerful model for deep analysis
 critique_agent = Agent(
-    'gemini-2.0-pro',  # Using a more powerful model for deep analysis
+    'gemini-2.0-flash',  # Using a more powerful model for deep analysis
     deps_type=CritiqueAgentDependencies,
     result_type=CritiqueResponse,
     system_prompt=(
@@ -104,8 +105,28 @@ def critique_plan(
         plan = ctx.deps.plan
         
         if not plan:
+            logfire.error("No plan provided for critique")
             raise ModelRetry("No plan provided for critique. Please provide a plan to evaluate.")
         
+        # Log plan details for debugging
+        logfire.debug(f"Critiquing plan:")
+        logfire.debug(f"  - Task: {plan.task_description}")
+        logfire.debug(f"  - Current audio path: {plan.current_audio_path}")
+        logfire.debug(f"  - Number of steps: {len(plan.steps)}")
+        for i, step in enumerate(plan.steps):
+            logfire.debug(f"  - Step {i+1}: {step.description}")
+            logfire.debug(f"    Tool: {step.tool_name}")
+            logfire.debug(f"    Status: {step.status}")
+            logfire.debug(f"    Args: {step.tool_args}")
+        
+        # Verify audio file exists
+        if not os.path.exists(plan.current_audio_path):
+            logfire.error(f"Audio file not found: {plan.current_audio_path}")
+            logfire.debug("Working directory contents:")
+            for file in os.listdir(os.path.dirname(plan.current_audio_path)):
+                logfire.debug(f"  - {file}")
+            raise FileNotFoundError(f"Audio file not found: {plan.current_audio_path}")
+            
         # This is where the model will generate its critique based on the plan
         # The system will evaluate the plan for:
         # - Missing steps
@@ -138,10 +159,20 @@ def critique_code(
         step_index = ctx.deps.plan_step_index
         
         if not code:
+            logfire.error("No code provided for critique")
             raise ModelRetry("No code provided for critique. Please provide code to evaluate.")
             
         if not plan or step_index is None or step_index < 0 or step_index >= len(plan.steps):
+            logfire.error(f"Invalid plan or step index: plan={bool(plan)}, step_index={step_index}")
             raise ModelRetry("Invalid plan or step index for code critique.")
+        
+        # Log code details for debugging
+        logfire.debug(f"Critiquing code for step {step_index + 1}:")
+        logfire.debug(f"  - Task: {plan.task_description}")
+        logfire.debug(f"  - Step description: {plan.steps[step_index].description}")
+        logfire.debug(f"  - Tool: {plan.steps[step_index].tool_name}")
+        logfire.debug(f"  - Code length: {len(code)} characters")
+        logfire.debug(f"  - Code preview (first 200 chars):\n{code[:200]}...")
         
         # This is where the model will generate its critique based on the code
         # The system will evaluate the code for:
@@ -179,7 +210,15 @@ def suggest_improvements(
     """
     with logfire.span("suggest_improvements", critique_type=critique_type):
         if critique_type not in ["plan", "code"]:
+            logfire.error(f"Invalid critique type: {critique_type}")
             raise ModelRetry("Invalid critique type. Must be either 'plan' or 'code'.")
+            
+        # Log improvement request details
+        logfire.debug(f"Suggesting improvements:")
+        logfire.debug(f"  - Type: {critique_type}")
+        logfire.debug(f"  - Issues: {issues}")
+        logfire.debug(f"  - Content length: {len(current_content)} characters")
+        logfire.debug(f"  - Content preview (first 200 chars):\n{current_content[:200]}...")
             
         # This is where the model will generate an improved version
         # based on the issues identified in the critique
