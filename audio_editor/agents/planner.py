@@ -5,7 +5,7 @@ import logfire
 from typing import Optional, List, Dict, Any, TypeVar, Union
 
 from pydantic_ai import Agent, RunContext, ModelRetry
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from .models import AudioPlan, PlannerOutput, StepStatus, PlanStep, ExecutionResult, ErrorAnalysisResult
 from .dependencies import PlannerDependencies
@@ -17,10 +17,18 @@ class PlannerResponse(BaseModel):
     replanning_needed: bool = False
     checkpoint_index: Optional[int] = None
     
-    # Remove additionalProperties which is not supported by Gemini
-    # model_config = {
-    #     "json_schema_extra": {"additionalProperties": True}
-    # }
+    model_config = ConfigDict(
+        extra='forbid',
+        json_schema_extra={
+            "type": "object",
+            "properties": {
+                "updated_plan": {"$ref": "#/definitions/AudioPlan"},
+                "replanning_needed": {"type": "boolean"},
+                "checkpoint_index": {"type": "integer", "nullable": True}
+            },
+            "required": ["updated_plan", "replanning_needed"]
+        }
+    )
 
 
 # Initialize Planner Agent

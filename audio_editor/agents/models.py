@@ -18,23 +18,60 @@ class StepStatus(str, Enum):
 class PlanStep(BaseModel):
     """A step in the audio processing plan."""
     description: str
-    status: StepStatus = StepStatus.PENDING
+    status: str = Field(default="PENDING", enum=["PENDING", "DONE", "FAILED"])
     code: Optional[str] = None
     tool_name: str
-    tool_args: Dict[str, Any] = Field(default_factory=dict)
+    tool_args: str = Field(default="{}")  # Store as JSON string instead of Dict
     
-    # Explicitly forbid extra properties to try and satisfy Gemini's schema requirements
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(
+        extra='forbid',
+        json_schema_extra={
+            "type": "object",
+            "properties": {
+                "description": {"type": "string"},
+                "status": {"type": "string", "enum": ["PENDING", "DONE", "FAILED"]},
+                "code": {"type": "string", "nullable": True},
+                "tool_name": {"type": "string"},
+                "tool_args": {"type": "string"}
+            },
+            "required": ["description", "tool_name"]
+        }
+    )
 
 
 class AudioPlan(BaseModel):
     """Plan for processing an audio file."""
     task_description: str
     steps: List[PlanStep] = []
-    current_audio_path: Path
-    completed_step_indices: List[int] = []
+    current_audio_path: str  # Change from Path to str for JSON compatibility
+    completed_step_indices: List[int] = Field(default_factory=list)
     is_complete: bool = False
-    checkpoint_indices: List[int] = []
+    checkpoint_indices: List[int] = Field(default_factory=list)
+
+    model_config = ConfigDict(
+        extra='forbid',
+        json_schema_extra={
+            "type": "object",
+            "properties": {
+                "task_description": {"type": "string"},
+                "steps": {
+                    "type": "array",
+                    "items": {"$ref": "#/definitions/PlanStep"}
+                },
+                "current_audio_path": {"type": "string"},
+                "completed_step_indices": {
+                    "type": "array",
+                    "items": {"type": "integer"}
+                },
+                "is_complete": {"type": "boolean"},
+                "checkpoint_indices": {
+                    "type": "array",
+                    "items": {"type": "integer"}
+                }
+            },
+            "required": ["task_description", "current_audio_path"]
+        }
+    )
 
 
 class ExecutionResult(BaseModel):
