@@ -21,9 +21,7 @@ class QAResponse(BaseModel):
     metrics: Dict[str, Any] = {}
     reasoning: str
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    }
+    model_config = {}
 
 
 # Initialize QA Agent

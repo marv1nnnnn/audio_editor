@@ -20,9 +20,7 @@ class CritiqueResponse(BaseModel):
     reasoning: str
     critique_type: str
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    }
+    model_config = {}
 
 
 # Initialize Critique Agent - using a more powerful model for deep analysis

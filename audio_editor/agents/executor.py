@@ -18,9 +18,7 @@ class CodeGenerationResponse(BaseModel):
     generated_code: str
     expected_output_path: Optional[str] = None
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    }
+    model_config = {}
 
 
 # Initialize Execution Agent

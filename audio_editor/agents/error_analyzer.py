@@ -23,9 +23,7 @@ class ErrorAnalysisResponse(BaseModel):
     requires_replanning: bool = False
     confidence: float
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    }
+    model_config = {}
 
 
 # Initialize Error Analyzer Agent

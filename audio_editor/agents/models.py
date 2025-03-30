@@ -23,9 +23,7 @@ class PlanStep(BaseModel):
     tool_name: str
     tool_args: dict = {}
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    }
+    model_config = {}
 
 
 class AudioPlan(BaseModel):
@@ -37,9 +35,7 @@ class AudioPlan(BaseModel):
     is_complete: bool = False
     checkpoint_indices: List[int] = []
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    }
+    model_config = {}
 
 
 class ExecutionResult(BaseModel):
@@ -51,9 +47,7 @@ class ExecutionResult(BaseModel):
     output_paths: Optional[List[str]] = None
     duration: float
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    }
+    model_config = {}
 
 
 class AudioInput(BaseModel):
@@ -61,9 +55,7 @@ class AudioInput(BaseModel):
     transcript: str
     timestamp: float
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    }
+    model_config = {}
 
 
 class ToolDefinition(BaseModel):
@@ -73,9 +65,7 @@ class ToolDefinition(BaseModel):
     signature: str
     docstring: str
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    }
+    model_config = {}
 
 
 class PlannerOutput(BaseModel):
@@ -86,9 +76,7 @@ class PlannerOutput(BaseModel):
     replanning_needed: bool = False
     checkpoint_index: Optional[int] = None
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    }
+    model_config = {}
 
 
 class ExecutorOutput(BaseModel):
@@ -98,9 +86,7 @@ class ExecutorOutput(BaseModel):
     persistent_failure: bool = False
     retry_count: int = 0
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    }
+    model_config = {}
 
 # New models for the optimized workflow
 
@@ -112,9 +98,7 @@ class CritiqueResult(BaseModel):
     reasoning: str
     critique_type: str
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    }
+    model_config = {}
 
 
 class QAResult(BaseModel):
@@ -125,9 +109,7 @@ class QAResult(BaseModel):
     metrics: Dict[str, Any] = {}
     reasoning: str
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    }
+    model_config = {}
 
 
 class ErrorAnalysisResult(BaseModel):
@@ -139,9 +121,7 @@ class ErrorAnalysisResult(BaseModel):
     requires_replanning: bool = False
     confidence: float
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    }
+    model_config = {}
 
 
 class UserFeedbackRequest(BaseModel):
@@ -152,9 +132,7 @@ class UserFeedbackRequest(BaseModel):
     severity: str = "info"
     request_type: str
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    }
+    model_config = {}
 
 
 class UserFeedbackResponse(BaseModel):
@@ -162,6 +140,4 @@ class UserFeedbackResponse(BaseModel):
     response: str
     timestamp: float
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    } 
+    model_config = {} 

@@ -17,9 +17,7 @@ class PlannerResponse(BaseModel):
     replanning_needed: bool = False
     checkpoint_index: Optional[int] = None
     
-    model_config = {
-        "json_schema_extra": {"additionalProperties": True}
-    }
+    model_config = {}
 
 
 # Initialize Planner Agent
