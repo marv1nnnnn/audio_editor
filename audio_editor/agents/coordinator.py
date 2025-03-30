@@ -147,7 +147,19 @@ class AudioProcessingCoordinator:
 
             # --- Debug Log Start ---
             try:
-                planner_deps_repr = json.dumps(planner_deps.model_dump(), indent=2, default=str)
+                import json
+                # Use vars() or manually build dict if vars() doesn't work well
+                planner_deps_dict = {}
+                for attr, value in vars(planner_deps).items():
+                    # Attempt to represent complex objects simply for logging
+                    if hasattr(value, 'model_dump'): # Check if it's a Pydantic model
+                        planner_deps_dict[attr] = value.model_dump()
+                    elif isinstance(value, (list, tuple)):
+                         planner_deps_dict[attr] = [repr(item) for item in value[:5]] # Log first few items
+                    else:
+                        planner_deps_dict[attr] = repr(value) # Use repr for others
+
+                planner_deps_repr = json.dumps(planner_deps_dict, indent=2, default=str)
                 logfire.debug(f"PlannerDependencies before initial run:\n{planner_deps_repr}")
             except Exception as e:
                 logfire.error(f"Failed to serialize planner_deps for logging: {e}")
@@ -264,7 +276,7 @@ class AudioProcessingCoordinator:
                     {
                         "plan": plan,
                         "step_index": next_step_index,
-                        "execution_result": execution_result.model_dump()
+                        "execution_result": execution_result
                     },
                     planner_result
                 )

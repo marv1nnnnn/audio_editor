@@ -107,7 +107,7 @@ def update_plan_after_execution(
     ctx: RunContext[PlannerDependencies],
     plan: AudioPlan,
     step_index: int,
-    execution_result: dict
+    execution_result: ExecutionResult
 ) -> PlannerResponse:
     """
     Update the plan based on the execution result of a step.
@@ -115,7 +115,7 @@ def update_plan_after_execution(
     Args:
         plan: Current audio processing plan
         step_index: Index of the step that was executed
-        execution_result: Result of the step execution
+        execution_result: Result of the step execution (as ExecutionResult object)
         
     Returns:
         An updated plan with the next step to execute
@@ -123,8 +123,8 @@ def update_plan_after_execution(
     with logfire.span("update_plan_after_execution", step_index=step_index):
         updated_plan = plan.model_copy(deep=True)
         
-        # Update the status of the current step
-        if execution_result["status"] == "SUCCESS":
+        # Update the status of the current step using the model attribute
+        if execution_result.status == "SUCCESS":
             updated_plan.steps[step_index].status = StepStatus.DONE
             updated_plan.completed_step_indices.append(step_index)
             
@@ -146,8 +146,6 @@ def update_plan_after_execution(
         
         return PlannerResponse(
             updated_plan=updated_plan,
-            next_step_index=next_step_index,
-            is_complete=is_complete,
             replanning_needed=False,
             checkpoint_index=checkpoint_index
         )
