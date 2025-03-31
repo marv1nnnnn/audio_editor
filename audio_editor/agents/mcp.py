@@ -9,9 +9,9 @@ import inspect
 import traceback
 import asyncio
 import logfire
-from typing import Dict, Any, Callable, Optional, List, Tuple, Union
+from typing import Dict, Callable, Optional, List, Tuple, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .models import ExecutionResult
 from audio_editor import audio_tools
@@ -24,7 +24,7 @@ logfire.configure()
 class CodeParsingResult(BaseModel):
     """Result of parsing code."""
     tool_name: str
-    kwargs: Dict[str, Any]
+    kwargs: Dict[str, Union[str, int, float, bool, List[Union[str, int, float, bool]]]] = Field(default_factory=dict)
     is_valid: bool = True
     error_message: str = ""
 
@@ -54,7 +54,7 @@ class MCPCodeExecutor:
                     logfire.debug(f"Added tool: {name}")
             return tools
     
-    def _prepare_execution_environment(self) -> Dict[str, Any]:
+    def _prepare_execution_environment(self) -> Dict[str, Union[Callable, object]]:
         """Prepare the execution environment with available tools."""
         with logfire.span("prepare_execution_environment"):
             # Set up a clean environment with just the audio tools

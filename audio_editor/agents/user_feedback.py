@@ -6,7 +6,7 @@ import logfire
 import time
 import sys
 import os
-from typing import List, Optional, Dict, Any, Callable, Union
+from typing import List, Optional, Dict, Union, Callable
 
 from .models import UserFeedbackRequest, UserFeedbackResponse
 

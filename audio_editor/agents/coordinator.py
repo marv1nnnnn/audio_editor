@@ -8,7 +8,7 @@ import re
 import asyncio
 import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union
 import json
 
 import logfire

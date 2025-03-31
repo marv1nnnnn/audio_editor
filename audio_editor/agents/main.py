@@ -39,8 +39,8 @@ async def process_audio_file(
         Path to the output audio file
     """
     # Configure Logfire
-    log_level = logfire.Level.INFO
-    logfire.configure(level=log_level)
+
+    logfire.configure()
     
     # Set up working directory
     if not working_dir:
@@ -142,8 +142,7 @@ def main():
     args = parser.parse_args()
     
     # Configure logging with the specified level
-    log_level = getattr(logfire.Level, args.log_level.upper())
-    logfire.configure(level=log_level)
+    logfire.configure()
     
     # Process the audio file with new options
     try:

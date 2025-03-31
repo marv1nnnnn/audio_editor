@@ -98,7 +98,7 @@ class QAResult(BaseModel):
     meets_requirements: bool
     issues: List[str] = []
     suggestions: List[str] = []
-    metrics: Dict[str, Any] = {}
+    metrics: Dict[str, Union[int, float, str]] = Field(default_factory=dict)
     reasoning: str
     
     model_config = ConfigDict(extra='forbid')
