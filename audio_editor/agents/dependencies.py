@@ -62,30 +62,6 @@ class AudioProcessingContext(BaseModel):
             logfire.info(f"Created AudioProcessingContext with {len(tools)} tools")
             return context
 
-    def get_tool_definitions(self) -> List[ToolDefinition]:
-        """Get structured definitions of all available tools."""
-        with logfire.span("get_tool_definitions"):
-            definitions = []
-            
-            for name, func in self.available_tools.items():
-                doc = inspect.getdoc(func) or "No description available."
-                first_line_doc = doc.splitlines()[0].strip()
-                
-                try:
-                    sig = str(inspect.signature(func))
-                    sig = sig.replace("NoneType", "None")
-                except ValueError:
-                    sig = "(...)"  # Fallback
-                    
-                definitions.append(ToolDefinition(
-                    name=name,
-                    description=first_line_doc,
-                    signature=sig,
-                    docstring=doc
-                ))
-                
-            return definitions
-
     def get_tool_signatures(self) -> Dict[str, str]:
         """Get the signatures of available tools as strings."""
         with logfire.span("get_tool_signatures"):
@@ -132,36 +108,6 @@ class PlannerDependencies(BaseModel):
         extra='forbid',
         arbitrary_types_allowed=True  # Allow ToolDefinition objects
     )
-
-    @classmethod
-    def from_models(
-        cls,
-        context: AudioProcessingContext,
-        task_description: str,
-        tool_definitions: List[ToolDefinition],
-        audio_input: AudioInput,
-        current_plan: Optional[AudioPlan] = None,
-        execution_result: Optional[ExecutionResult] = None,
-        critique_result: Optional[CritiqueResult] = None,
-        user_feedback: Optional[UserFeedbackResponse] = None
-    ) -> "PlannerDependencies":
-        """Create PlannerDependencies from model instances."""
-        # Create serializable context with only serializable fields
-        serializable_context = SerializableAudioProcessingContext(
-            workspace_dir=context.workspace_dir,
-            model_name=context.model_name
-        )
-        
-        return cls(
-            context=serializable_context,
-            task_description=task_description,
-            tool_definitions=tool_definitions,  # Pass ToolDefinition objects directly
-            audio_input=audio_input,            # Pass AudioInput object directly
-            current_plan=current_plan,          # Pass AudioPlan object directly
-            execution_result=execution_result,  # Pass ExecutionResult object directly
-            critique_result=critique_result,    # Pass CritiqueResult object directly
-            user_feedback=user_feedback         # Pass UserFeedbackResponse object directly
-        )
 
 
 class ExecutorDependencies(BaseModel):

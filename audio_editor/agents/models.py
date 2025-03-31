@@ -71,17 +71,8 @@ class ToolDefinition(BaseModel):
     )
 
 
-class PlannerResponse(BaseModel):
-    """Response from the planner agent."""
-    updated_plan: AudioPlan
-    replanning_needed: bool = False
-    checkpoint_index: Optional[int] = None
-    
-    model_config = ConfigDict(extra='forbid')
-
-
 class ExecutorOutput(BaseModel):
-    """Output from the Executor Agent."""
+    """Output from the executor agent."""
     step_index: int
     generated_code: str
     persistent_failure: bool = False
@@ -92,7 +83,7 @@ class ExecutorOutput(BaseModel):
 # New models for the optimized workflow
 
 class CritiqueResult(BaseModel):
-    """Result of a critique of a plan or code."""
+    """Result from the critique agent."""
     is_approved: bool
     suggestions: List[str] = []
     improved_version: Optional[str] = None

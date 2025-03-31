@@ -23,6 +23,7 @@ from .user_feedback import ConsoleUserFeedbackHandler
 
 # Configure Logfire for debugging
 logfire.configure()
+Agent.instrument_all()
 
 
 # Define Pydantic models for structured data
