@@ -22,6 +22,12 @@ async def test_basic_audio_processing(temp_workspace, sample_audio_file):
     
     assert os.path.exists(result_path)
     assert Path(result_path).suffix == ".wav"
+    
+    # Check that a workflow file was created
+    docs_dir = os.path.join(temp_workspace, "docs")
+    assert os.path.exists(docs_dir)
+    workflow_files = [f for f in os.listdir(docs_dir) if f.endswith(".md")]
+    assert len(workflow_files) > 0
 
 
 @pytest.mark.asyncio
@@ -50,7 +56,7 @@ async def test_error_recovery_workflow(temp_workspace, sample_audio_file):
     coordinator = AudioProcessingCoordinator(str(temp_workspace))
     
     # Create a task that will partially succeed but then fail
-    result_path = await coordinator.process_audio(
+    result_path = await coordinator.run_workflow(
         task_description=(
             "First copy the audio file, then try to use a non-existent tool, "
             "and finally get the audio length"
@@ -115,4 +121,35 @@ async def test_concurrent_processing(temp_workspace, sample_audio_file):
         assert Path(result_path).suffix == ".wav"
     
     # Verify files are different (have unique paths)
-    assert len(set(results)) == len(results) 
+    assert len(set(results)) == len(results)
+
+
+@pytest.mark.asyncio
+async def test_markdown_workflow_file(temp_workspace, sample_audio_file):
+    """Test that the Markdown workflow file is created and contains the expected sections."""
+    coordinator = AudioProcessingCoordinator(str(temp_workspace))
+    
+    result_path = await coordinator.run_workflow(
+        task_description="Create a loud version of this audio",
+        audio_file_path=str(sample_audio_file)
+    )
+    
+    # Check that the workflow file was created
+    docs_dir = os.path.join(temp_workspace, "docs")
+    assert os.path.exists(docs_dir)
+    
+    workflow_files = [f for f in os.listdir(docs_dir) if f.endswith(".md")]
+    assert len(workflow_files) > 0
+    
+    # Read the workflow file
+    workflow_file = os.path.join(docs_dir, workflow_files[0])
+    with open(workflow_file, "r") as f:
+        content = f.read()
+    
+    # Check that the expected sections are present
+    assert "# Audio Processing Workflow:" in content
+    assert "## 1. Request Summary" in content
+    assert "## 2. Product Requirements Document (PRD)" in content
+    assert "## 3. Processing Plan & Status" in content
+    assert "## 4. Final Output" in content
+    assert "## 5. Workflow Log" in content 

@@ -9,14 +9,8 @@ import shutil
 import torch
 import torchaudio
 
-from audio_editor.agents.models import (
-    AudioPlan, PlanStep, ExecutionResult, StepStatus,
-    AudioInput, ToolDefinition
-)
-from audio_editor.agents.dependencies import (
-    AudioProcessingContext, PlannerDependencies,
-    ExecutorDependencies
-)
+from audio_editor.agents.models import ExecutionResult
+from audio_editor.agents.dependencies import AudioProcessingContext
 
 
 @pytest.fixture

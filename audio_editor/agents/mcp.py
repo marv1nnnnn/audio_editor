@@ -9,10 +9,24 @@ import inspect
 import traceback
 import asyncio
 import logfire
-from typing import Dict, Any, Callable, Optional, List, Tuple
+from typing import Dict, Any, Callable, Optional, List, Tuple, Union
+
+from pydantic import BaseModel
 
 from .models import ExecutionResult
 from audio_editor import audio_tools
+
+
+# Configure Logfire for debugging
+logfire.configure()
+
+
+class CodeParsingResult(BaseModel):
+    """Result of parsing code."""
+    tool_name: str
+    kwargs: Dict[str, Any]
+    is_valid: bool = True
+    error_message: str = ""
 
 
 class MCPCodeExecutor:
@@ -24,30 +38,34 @@ class MCPCodeExecutor:
         Args:
             workspace_dir: Directory to use as working directory for execution
         """
-        self.workspace_dir = os.path.abspath(workspace_dir)
-        self.tools = self._gather_tools()
-        logfire.info(f"MCP initialized with {len(self.tools)} audio tools in workspace {self.workspace_dir}")
+        with logfire.span("mcp_init"):
+            self.workspace_dir = os.path.abspath(workspace_dir)
+            self.tools = self._gather_tools()
+            logfire.info(f"MCP initialized with {len(self.tools)} audio tools in workspace {self.workspace_dir}")
     
     def _gather_tools(self) -> Dict[str, Callable]:
         """Gather all available tools from the audio_tools module."""
-        tools = {}
-        for name, func in inspect.getmembers(audio_tools):
-            # Tools are uppercase functions
-            if inspect.isfunction(func) and name.isupper() and not name.startswith("_"):
-                tools[name] = func
-        return tools
+        with logfire.span("gather_tools"):
+            tools = {}
+            for name, func in inspect.getmembers(audio_tools):
+                # Tools are uppercase functions
+                if inspect.isfunction(func) and name.isupper() and not name.startswith("_"):
+                    tools[name] = func
+                    logfire.debug(f"Added tool: {name}")
+            return tools
     
     def _prepare_execution_environment(self) -> Dict[str, Any]:
         """Prepare the execution environment with available tools."""
-        # Set up a clean environment with just the audio tools
-        environment = self.tools.copy()
-        
-        # Add basic modules/functions needed for execution
-        environment['os'] = os
-        
-        return environment
+        with logfire.span("prepare_execution_environment"):
+            # Set up a clean environment with just the audio tools
+            environment = self.tools.copy()
+            
+            # Add basic modules/functions needed for execution
+            environment['os'] = os
+            
+            return environment
     
-    def _parse_code(self, code_string: str) -> Tuple[str, Dict[str, Any]]:
+    def _parse_code(self, code_string: str) -> CodeParsingResult:
         """
         Parse the code to extract the tool name and arguments.
         
@@ -55,79 +73,121 @@ class MCPCodeExecutor:
             code_string: String containing the Python code to execute
             
         Returns:
-            Tuple of (tool_name, tool_args)
-            
-        Raises:
-            SyntaxError: If the code has syntax errors
-            ValueError: If the code doesn't contain a valid tool call
+            CodeParsingResult with tool_name, kwargs, and validation info
         """
-        try:
-            # Parse the code into an AST
-            parsed = ast.parse(code_string.strip())
-            
-            # We expect a simple tool call like TOOL_NAME(arg1="value", arg2=123)
-            if not parsed.body or not isinstance(parsed.body[0], ast.Expr):
-                raise ValueError("Code must contain a single tool call expression")
-            
-            expr = parsed.body[0].value
-            if not isinstance(expr, ast.Call):
-                raise ValueError("Expression must be a function call")
-            
-            # Extract function name
-            if isinstance(expr.func, ast.Name):
-                func_name = expr.func.id
-            else:
-                raise ValueError("Function call must use a simple name")
-            
-            # Extract arguments
-            kwargs = {}
-            for kw in expr.keywords:
-                # For string literals
-                if isinstance(kw.value, ast.Constant):
-                    kwargs[kw.arg] = kw.value.value
-                # For numeric literals, booleans, etc.
-                elif isinstance(kw.value, (ast.Num, ast.NameConstant)):
-                    kwargs[kw.arg] = kw.value.n if hasattr(kw.value, 'n') else kw.value.value
-                # For lists
-                elif isinstance(kw.value, ast.List):
-                    items = []
-                    for elt in kw.value.elts:
-                        if isinstance(elt, ast.Constant):
-                            items.append(elt.value)
-                        else:
-                            # Simplified handling - could be extended for more complex cases
-                            items.append(None)
-                    kwargs[kw.arg] = items
+        with logfire.span("parse_code", code=code_string):
+            try:
+                # Parse the code into an AST
+                parsed = ast.parse(code_string.strip())
+                
+                # We expect a simple tool call like TOOL_NAME(arg1="value", arg2=123)
+                if not parsed.body or not isinstance(parsed.body[0], ast.Expr):
+                    return CodeParsingResult(
+                        tool_name="",
+                        kwargs={},
+                        is_valid=False,
+                        error_message="Code must contain a single tool call expression"
+                    )
+                
+                expr = parsed.body[0].value
+                if not isinstance(expr, ast.Call):
+                    return CodeParsingResult(
+                        tool_name="",
+                        kwargs={},
+                        is_valid=False,
+                        error_message="Expression must be a function call"
+                    )
+                
+                # Extract function name
+                if isinstance(expr.func, ast.Name):
+                    func_name = expr.func.id
                 else:
-                    # Skip arguments we can't directly interpret
-                    pass
-            
-            return func_name, kwargs
-            
-        except SyntaxError as e:
-            raise SyntaxError(f"Syntax error in code: {str(e)}")
-        except Exception as e:
-            raise ValueError(f"Error parsing code: {str(e)}")
+                    return CodeParsingResult(
+                        tool_name="",
+                        kwargs={},
+                        is_valid=False,
+                        error_message="Function call must use a simple name"
+                    )
+                
+                # Extract arguments
+                kwargs = {}
+                for kw in expr.keywords:
+                    # For string literals
+                    if isinstance(kw.value, ast.Constant):
+                        kwargs[kw.arg] = kw.value.value
+                    # For numeric literals, booleans, etc.
+                    elif isinstance(kw.value, (ast.Num, ast.NameConstant)):
+                        kwargs[kw.arg] = kw.value.n if hasattr(kw.value, 'n') else kw.value.value
+                    # For lists
+                    elif isinstance(kw.value, ast.List):
+                        items = []
+                        for elt in kw.value.elts:
+                            if isinstance(elt, ast.Constant):
+                                items.append(elt.value)
+                            else:
+                                # Simplified handling - could be extended for more complex cases
+                                items.append(None)
+                        kwargs[kw.arg] = items
+                    else:
+                        # Log unsupported argument types
+                        logfire.warning(f"Unsupported argument type: {type(kw.value)} for argument {kw.arg}")
+                
+                return CodeParsingResult(
+                    tool_name=func_name,
+                    kwargs=kwargs,
+                    is_valid=True
+                )
+                
+            except SyntaxError as e:
+                logfire.error(f"Syntax error in code: {str(e)}")
+                return CodeParsingResult(
+                    tool_name="",
+                    kwargs={},
+                    is_valid=False,
+                    error_message=f"Syntax error in code: {str(e)}"
+                )
+            except Exception as e:
+                logfire.error(f"Error parsing code: {str(e)}")
+                return CodeParsingResult(
+                    tool_name="",
+                    kwargs={},
+                    is_valid=False,
+                    error_message=f"Error parsing code: {str(e)}"
+                )
     
-    async def execute_code(self, code_string: str) -> ExecutionResult:
+    async def execute_code(self, code_string: str, description: str = "Code execution") -> ExecutionResult:
         """
         Execute the provided Python code in a controlled environment.
         
         Args:
             code_string: String containing the Python code to execute
+            description: Description of the code being executed (for logging)
             
         Returns:
             ExecutionResult with status, output, and error message if any
         """
-        start_time = time.time()
-        
-        try:
-            with logfire.span("mcp_execute_code", code=code_string):
+        with logfire.span("execute_code", description=description):
+            start_time = time.time()
+            
+            try:
                 # Parse the code to extract tool name and arguments
-                func_name, kwargs = self._parse_code(code_string)
+                logfire.info(f"Parsing code: {code_string}")
+                parsing_result = self._parse_code(code_string)
+                
+                if not parsing_result.is_valid:
+                    logfire.error(f"Invalid code: {parsing_result.error_message}")
+                    return ExecutionResult(
+                        status="FAILURE",
+                        error_message=parsing_result.error_message,
+                        duration=time.time() - start_time
+                    )
+                
+                func_name = parsing_result.tool_name
+                kwargs = parsing_result.kwargs
                 
                 # Check if the tool exists
                 if func_name not in self.tools:
+                    logfire.error(f"Tool not found: {func_name}")
                     return ExecutionResult(
                         status="FAILURE",
                         error_message=f"Tool '{func_name}' not found",
@@ -140,6 +200,7 @@ class MCPCodeExecutor:
                 # Execute the tool function
                 logfire.info(f"Executing {func_name} with args: {kwargs}")
                 result = tool_func(**kwargs)
+                logfire.info(f"Execution completed with result: {result}")
                 
                 # Process the result
                 output_path = None
@@ -148,10 +209,12 @@ class MCPCodeExecutor:
                 if isinstance(result, str) and os.path.exists(result):
                     # Tool returned a single file path
                     output_path = os.path.abspath(result)
+                    logfire.debug(f"Result is a file path: {output_path}")
                 elif isinstance(result, list) and result and all(isinstance(item, str) and os.path.exists(item) for item in result):
                     # Tool returned multiple file paths
                     output_paths = [os.path.abspath(p) for p in result]
                     output_path = output_paths[0]  # Use first as primary
+                    logfire.debug(f"Result is multiple file paths. Primary: {output_path}")
                 
                 return ExecutionResult(
                     status="SUCCESS",
@@ -161,10 +224,11 @@ class MCPCodeExecutor:
                     output_paths=output_paths
                 )
                 
-        except Exception as e:
-            logfire.error(f"Error executing code: {str(e)}", exc_info=True)
-            return ExecutionResult(
-                status="FAILURE",
-                error_message=f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}",
-                duration=time.time() - start_time
-            ) 
+            except Exception as e:
+                error_msg = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+                logfire.error(f"Error executing code: {error_msg}")
+                return ExecutionResult(
+                    status="FAILURE",
+                    error_message=error_msg,
+                    duration=time.time() - start_time
+                ) 

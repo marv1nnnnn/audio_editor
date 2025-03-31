@@ -18,7 +18,7 @@ async def process_audio_file(
     working_dir: str = None,
     transcript: str = "",
     interactive: bool = True,
-    enable_critique: bool = True,
+    enable_error_analyzer: bool = True,
     enable_qa: bool = True
 ) -> str:
     """
@@ -32,12 +32,16 @@ async def process_audio_file(
         working_dir: Directory for intermediate files
         transcript: Transcript of the audio file (if available)
         interactive: Whether to enable interactive user feedback
-        enable_critique: Whether to enable the Critique Agent
+        enable_error_analyzer: Whether to enable the Error Analyzer
         enable_qa: Whether to enable the QA Agent
         
     Returns:
         Path to the output audio file
     """
+    # Configure Logfire
+    log_level = logfire.Level.INFO
+    logfire.configure(level=log_level)
+    
     # Set up working directory
     if not working_dir:
         working_dir = os.path.join(os.getcwd(), "audio_editor_work")
@@ -49,12 +53,18 @@ async def process_audio_file(
         working_dir=working_dir, 
         model_name=model_name,
         interactive=interactive,
-        enable_critique=enable_critique,
+        enable_error_analyzer=enable_error_analyzer,
         enable_qa=enable_qa
     )
     
-    # Process the audio
-    result_path = await coordinator.process_audio(task, input_file, transcript)
+    # Log the task information
+    logfire.info(f"Processing audio task: {task}")
+    logfire.info(f"Input file: {input_file}")
+    logfire.info(f"Model: {model_name}")
+    logfire.info(f"Working directory: {working_dir}")
+    
+    # Process the audio using the appropriate method
+    result_path = await coordinator.run_workflow(task, input_file, transcript)
     
     # Copy to output location if specified
     if output_file:
@@ -108,9 +118,9 @@ def main():
         help="Disable interactive user feedback (use default responses)"
     )
     parser.add_argument(
-        "--disable-critique",
+        "--disable-error-analyzer",
         action="store_true",
-        help="Disable the Critique Agent for plan and code review"
+        help="Disable the Error Analyzer for fixing failed steps"
     )
     parser.add_argument(
         "--disable-qa",
@@ -123,11 +133,17 @@ def main():
         default="info",
         help="Set logging level (default: info)"
     )
+    parser.add_argument(
+        "--workflow-file",
+        default=None,
+        help="Path to an existing workflow file to resume processing (optional)"
+    )
     
     args = parser.parse_args()
     
     # Configure logging with the specified level
-    logfire.configure()
+    log_level = getattr(logfire.Level, args.log_level.upper())
+    logfire.configure(level=log_level)
     
     # Process the audio file with new options
     try:
@@ -139,11 +155,24 @@ def main():
             working_dir=args.working_dir,
             transcript=args.transcript,
             interactive=not args.non_interactive,
-            enable_critique=not args.disable_critique,
+            enable_error_analyzer=not args.disable_error_analyzer,
             enable_qa=not args.disable_qa
         ))
         
         print(f"Audio processing completed successfully. Result: {result_path}")
+        
+        # Print the location of the workflow Markdown file
+        if args.working_dir:
+            docs_dir = os.path.join(args.working_dir, "docs")
+        else:
+            docs_dir = os.path.join(os.getcwd(), "audio_editor_work", "docs")
+            
+        if os.path.exists(docs_dir):
+            workflow_files = [f for f in os.listdir(docs_dir) if f.startswith("workflow_") and f.endswith(".md")]
+            if workflow_files:
+                latest_workflow = max(workflow_files, key=lambda f: os.path.getmtime(os.path.join(docs_dir, f)))
+                print(f"Workflow file: {os.path.join(docs_dir, latest_workflow)}")
+        
         return 0
         
     except Exception as e:

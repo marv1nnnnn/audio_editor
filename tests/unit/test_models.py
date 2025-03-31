@@ -2,64 +2,11 @@
 Unit tests for Pydantic models.
 """
 import pytest
-from pathlib import Path
 from pydantic import ValidationError
 
 from audio_editor.agents.models import (
-    AudioPlan, PlanStep, ExecutionResult, StepStatus,
-    AudioInput, ToolDefinition
+    ExecutionResult, UserFeedbackRequest, UserFeedbackResponse
 )
-
-
-def test_plan_step_creation():
-    """Test PlanStep model creation and validation."""
-    # Test valid creation
-    step = PlanStep(
-        description="Test step",
-        tool_name="TEST_TOOL",
-        tool_args={"param": 1.0}
-    )
-    assert step.description == "Test step"
-    assert step.tool_name == "TEST_TOOL"
-    assert step.status == StepStatus.PENDING
-    assert step.tool_args == {"param": 1.0}
-    assert step.code is None
-
-    # Test invalid creation
-    with pytest.raises(ValidationError):
-        PlanStep(
-            description="",  # Empty description
-            tool_name="TEST_TOOL"
-        )
-
-
-def test_audio_plan_creation(sample_audio_file):
-    """Test AudioPlan model creation and validation."""
-    # Test valid creation
-    plan = AudioPlan(
-        task_description="Test task",
-        steps=[
-            PlanStep(
-                description="Step 1",
-                tool_name="TEST_TOOL",
-                tool_args={}
-            )
-        ],
-        current_audio_path=sample_audio_file
-    )
-    assert plan.task_description == "Test task"
-    assert len(plan.steps) == 1
-    assert isinstance(plan.current_audio_path, Path)
-    assert not plan.is_complete
-    assert not plan.completed_step_indices
-    assert not plan.checkpoint_indices
-
-    # Test invalid creation
-    with pytest.raises(ValidationError):
-        AudioPlan(
-            task_description="",  # Empty task description
-            current_audio_path=sample_audio_file
-        )
 
 
 def test_execution_result_creation():
@@ -89,51 +36,39 @@ def test_execution_result_creation():
     assert result.duration == 0.5
     assert result.output_path is None
 
-    # Test invalid creation
-    with pytest.raises(ValidationError):
-        ExecutionResult(
-            status="INVALID",  # Invalid status
-            duration=1.0
-        )
 
-
-def test_audio_input_creation():
-    """Test AudioInput model creation and validation."""
+def test_user_feedback_request_creation():
+    """Test UserFeedbackRequest model creation and validation."""
     # Test valid creation
-    audio_input = AudioInput(
-        transcript="Test transcript",
+    feedback_request = UserFeedbackRequest(
+        query="Test query",
+        context="Test context",
+        request_type="clarification"
+    )
+    assert feedback_request.query == "Test query"
+    assert feedback_request.context == "Test context"
+    assert feedback_request.request_type == "clarification"
+    assert feedback_request.severity == "info"  # Default
+    assert feedback_request.options is None
+
+    # Test with options
+    feedback_request = UserFeedbackRequest(
+        query="Test query",
+        context="Test context",
+        request_type="choice",
+        options=["Option 1", "Option 2"],
+        severity="warning"
+    )
+    assert feedback_request.options == ["Option 1", "Option 2"]
+    assert feedback_request.severity == "warning"
+
+
+def test_user_feedback_response_creation():
+    """Test UserFeedbackResponse model creation and validation."""
+    # Test valid creation
+    feedback_response = UserFeedbackResponse(
+        response="Test response",
         timestamp=1234567890.0
     )
-    assert audio_input.transcript == "Test transcript"
-    assert audio_input.timestamp == 1234567890.0
-
-    # Test invalid creation
-    with pytest.raises(ValidationError):
-        AudioInput(
-            transcript="",  # Empty transcript
-            timestamp=1234567890.0
-        )
-
-
-def test_tool_definition_creation():
-    """Test ToolDefinition model creation and validation."""
-    # Test valid creation
-    tool_def = ToolDefinition(
-        name="TEST_TOOL",
-        description="Test tool",
-        signature="(param: float = 1.0) -> str",
-        docstring="Test tool docstring"
-    )
-    assert tool_def.name == "TEST_TOOL"
-    assert tool_def.description == "Test tool"
-    assert tool_def.signature == "(param: float = 1.0) -> str"
-    assert tool_def.docstring == "Test tool docstring"
-
-    # Test invalid creation
-    with pytest.raises(ValidationError):
-        ToolDefinition(
-            name="",  # Empty name
-            description="Test tool",
-            signature="()",
-            docstring=""
-        ) 
+    assert feedback_response.response == "Test response"
+    assert feedback_response.timestamp == 1234567890.0 

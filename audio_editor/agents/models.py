@@ -45,9 +45,9 @@ class ExecutionResult(BaseModel):
     error_message: str = ""
     output_path: Optional[str] = None
     output_paths: Optional[List[str]] = None
-    duration: float
-
-    model_config = ConfigDict(extra='forbid')
+    duration: float = 0.0
+    
+    model_config = {"extra": "forbid"}
 
 
 class AudioInput(BaseModel):
@@ -133,7 +133,7 @@ class UserFeedbackRequest(BaseModel):
     severity: str = "info"
     request_type: str
     
-    model_config = ConfigDict(extra='forbid')
+    model_config = {"extra": "forbid"}
 
 
 class UserFeedbackResponse(BaseModel):
@@ -141,4 +141,46 @@ class UserFeedbackResponse(BaseModel):
     response: str
     timestamp: float
     
-    model_config = ConfigDict(extra='forbid') 
+    model_config = {"extra": "forbid"}
+
+
+class StepInfo(BaseModel):
+    """Information about a processing step."""
+    id: str = Field(..., description="Unique identifier for the step (e.g., step_1)")
+    title: str = Field(..., description="Brief title for the step")
+    description: str = Field(..., description="Detailed description of what the step should accomplish")
+    status: str = Field(default="PENDING", description="Current status of the step")
+    input_audio: str = Field(..., description="Path to input audio file or variable reference")
+    output_audio: str = Field(..., description="Path where output audio will be saved")
+    code: Optional[str] = Field(default=None, description="Generated Python code for the step")
+    execution_results: Optional[str] = Field(default=None, description="Results from executing the step")
+    timestamp_start: Optional[str] = Field(default=None, description="When step execution started")
+    timestamp_end: Optional[str] = Field(default=None, description="When step execution finished/failed")
+    
+    model_config = {"extra": "forbid"}
+
+
+class PlanResult(BaseModel):
+    """Result from the planner agent."""
+    prd: str = Field(..., description="The Product Requirements Document")
+    steps: List[StepInfo] = Field(..., description="The list of processing steps")
+    
+    model_config = {"extra": "forbid"}
+
+
+class CodeGenerationResult(BaseModel):
+    """Result from the code generation agent."""
+    code: str = Field(..., description="Generated Python code for the step")
+    explanation: Optional[str] = Field(default=None, description="Explanation of the generated code")
+    
+    model_config = {"extra": "forbid"}
+
+
+class ProcessingResult(BaseModel):
+    """Final result of the audio processing."""
+    output_path: str = Field(..., description="Path to the final processed audio")
+    status: str = Field(..., description="Overall processing status")
+    steps_completed: int = Field(..., description="Number of completed steps")
+    qa_result: Optional[QAResult] = Field(default=None, description="Results of quality assessment")
+    
+    model_config = {"extra": "forbid"} 
