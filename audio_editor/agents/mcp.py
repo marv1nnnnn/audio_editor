@@ -111,6 +111,36 @@ class MCPCodeExecutor:
                 
                 # Extract arguments
                 kwargs = {}
+                
+                # Handle positional arguments first
+                if expr.args:
+                    # Get the function signature to map positional args to parameter names
+                    if func_name in self.tools:
+                        sig = inspect.signature(self.tools[func_name])
+                        param_names = list(sig.parameters.keys())
+                        
+                        # Map positional args to parameter names
+                        for i, arg in enumerate(expr.args):
+                            if i < len(param_names):
+                                param_name = param_names[i]
+                                if isinstance(arg, ast.Constant):
+                                    kwargs[param_name] = arg.value
+                                elif isinstance(arg, (ast.Num, ast.NameConstant)):
+                                    kwargs[param_name] = arg.n if hasattr(arg, 'n') else arg.value
+                                elif isinstance(arg, ast.List):
+                                    items = []
+                                    for elt in arg.elts:
+                                        if isinstance(elt, ast.Constant):
+                                            items.append(elt.value)
+                                        else:
+                                            items.append(None)
+                                    kwargs[param_name] = items
+                                else:
+                                    logfire.warning(f"Unsupported argument type: {type(arg)} for parameter {param_name}")
+                    else:
+                        logfire.warning(f"Tool {func_name} not found, cannot map positional arguments")
+                
+                # Handle keyword arguments
                 for kw in expr.keywords:
                     # For string literals
                     if isinstance(kw.value, ast.Constant):
@@ -125,7 +155,6 @@ class MCPCodeExecutor:
                             if isinstance(elt, ast.Constant):
                                 items.append(elt.value)
                             else:
-                                # Simplified handling - could be extended for more complex cases
                                 items.append(None)
                         kwargs[kw.arg] = items
                     else:

@@ -10,7 +10,7 @@ import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 import json
-
+import inspect
 import logfire
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext, ModelRetry
@@ -19,6 +19,7 @@ from pydantic_ai.usage import Usage, UsageLimits
 from audio_editor import audio_tools
 from .mcp import MCPCodeExecutor
 from .user_feedback import ConsoleUserFeedbackHandler
+from .models import StepInfo, ExecutionResult, PlanResult, ProcessingResult, CodeGenerationResult
 
 
 # Configure Logfire for debugging
@@ -35,29 +36,6 @@ class ToolInfo(BaseModel):
     docstring: str = ""
 
 
-class ExecutionResult(BaseModel):
-    """Result of executing code."""
-    status: str
-    output: str = ""
-    error_message: str = ""
-    output_path: Optional[str] = None
-    output_paths: Optional[List[str]] = None
-    duration: float = 0.0
-
-
-class StepInfo(BaseModel):
-    """Information about a processing step."""
-    id: str
-    description: str
-    status: str
-    input_audio: str
-    output_audio: str
-    code: Optional[str] = None
-    execution_results: Optional[str] = None
-    timestamp_start: Optional[str] = None
-    timestamp_end: Optional[str] = None
-
-
 class WorkflowState(BaseModel):
     """State of the workflow, used for dependency injection."""
     workspace_dir: Path
@@ -67,24 +45,6 @@ class WorkflowState(BaseModel):
     original_audio: Path = ""
     tool_definitions: Dict[str, Dict[str, str]] = Field(default_factory=dict)
     current_markdown: str = ""
-
-
-class PlanResult(BaseModel):
-    """Result from the planner agent."""
-    prd: str = Field(..., description="The Product Requirements Document")
-    steps: List[Dict[str, str]] = Field(..., description="The list of processing steps")
-
-
-class CodeGenerationResult(BaseModel):
-    """Result from the code generation agent."""
-    code: str = Field(..., description="Generated Python code for the step")
-
-
-class ProcessingResult(BaseModel):
-    """Final result of the audio processing."""
-    output_path: str = Field(..., description="Path to the final processed audio")
-    status: str = Field(..., description="Overall processing status")
-    steps_completed: int = Field(..., description="Number of completed steps")
 
 
 # Define the multi-agent system
@@ -116,11 +76,39 @@ planner_agent = Agent(
     1. Create a detailed Product Requirements Document (PRD) based on the task
     2. Design a sequence of specific, achievable processing steps
     
-    Each step should have:
+    Each step must have:
     - A descriptive title
     - A unique ID (step_1, step_2, etc.)
     - A detailed description of what it should accomplish
     - Input and output paths
+    
+    Rules for file paths:
+    1. The first step MUST use the EXACT input audio filename shown in the Request Summary section under "Input Audio:"
+    2. Each subsequent step's input path MUST match the previous step's output path
+    3. Output paths should be descriptive of the operation (e.g., "normalized_audio.wav", "filtered_audio.wav")
+    4. All paths are relative to the working directory
+    5. Never assume or create arbitrary paths - use the workflow's original audio path
+    6. NEVER use generic names like "input.wav" or "output.wav"
+    7. DO NOT modify or change the input filename from the Request Summary
+    
+    Example:
+    If the Request Summary shows:
+    * **Input Audio:** `sample_1.wav`
+    
+    Then create steps like:
+    ### Step 1: Apply High-Pass Filter
+    
+    * **ID:** `step_1`
+    * **Description:** Remove low frequencies below 400 Hz to reduce rumble
+    * **Input Audio:** `sample_1.wav`  # MUST match Request Summary exactly
+    * **Output Audio:** `highpass_filtered.wav`
+    
+    ### Step 2: Normalize Volume
+    
+    * **ID:** `step_2`
+    * **Description:** Normalize the audio to broadcast standard
+    * **Input Audio:** `highpass_filtered.wav`  # Match previous step's output
+    * **Output Audio:** `normalized_audio.wav`
     """
 )
 
@@ -134,9 +122,34 @@ code_gen_agent = Agent(
     You are a code generation agent for audio processing. Your job is to:
     1. Generate a single line of Python code to implement a specific step
     2. Use the correct tool from the available tool definitions
-    3. Use the correct input/output paths for audio files
+    3. Use the EXACT file paths from the step information
     
-    You must return exactly one line of executable Python code.
+    Rules for code generation:
+    1. Use ONLY the tools provided in the tool definitions
+    2. Each tool takes a wav_path input and returns an output path
+    3. ALWAYS use the EXACT input_audio path from the step info - do not modify or assume paths
+    4. ALWAYS use the EXACT output_audio path from the step info - do not modify or assume paths
+    5. Include any necessary parameters based on the tool's signature
+    6. Return exactly one line of executable Python code
+    7. Do not add any imports or other statements
+    8. Do not use variables - use string literals directly
+    9. ALWAYS use keyword arguments (e.g., wav_path="sample_1.wav") instead of positional arguments
+    10. NEVER assume or hardcode file paths - they must come from the step info
+    
+    Example:
+    If the step info shows:
+    - Input Audio: `sample_1.wav`
+    - Output Audio: `normalized_audio.wav`
+    
+    And the tool is:
+    Tool: LOUDNESS_NORM
+    Signature: (wav_path: str, volume: float = -23.0, out_wav: str = None)
+    
+    You would generate:
+    LOUDNESS_NORM(wav_path="sample_1.wav", volume=-20.0, out_wav="normalized_audio.wav")
+    
+    NOT:
+    LOUDNESS_NORM(wav_path="input.wav", volume=-20.0, out_wav="output.wav")  # Don't assume paths
     """
 )
 
@@ -159,11 +172,42 @@ def add_tool_info(ctx: RunContext[WorkflowState]) -> str:
 
 
 @code_gen_agent.system_prompt
-def add_step_context(ctx: RunContext[WorkflowState]) -> str:
-    """Add context about the current step."""
-    if not ctx.deps.current_step_id:
-        return ""
-    return f"Currently generating code for step: {ctx.deps.current_step_id}"
+def add_code_gen_context(ctx: RunContext[WorkflowState]) -> str:
+    """Add tool definitions and step information to the code generation context."""
+    with logfire.span("add_code_gen_context"):
+        # Get the current step info from the markdown
+        step_info = _get_step_info(ctx.deps.workflow_file, ctx.deps.current_step_id)
+        if not step_info:
+            return "Error: No step information found"
+            
+        # Format tool definitions
+        tool_defs = []
+        for name, info in ctx.deps.tool_definitions.items():
+            tool_defs.append(f"Tool: {name}")
+            tool_defs.append(f"Signature: {info['signature']}")
+            tool_defs.append(f"Description: {info['description']}")
+            tool_defs.append("")
+            
+        tools_str = "\n".join(tool_defs)
+        
+        return f"""
+Current step information:
+- ID: {step_info.id}
+- Description: {step_info.description}
+- Input Audio: {step_info.input_audio}
+- Output Audio: {step_info.output_audio}
+
+Available tools:
+{tools_str}
+
+Task description: {ctx.deps.task_description}
+
+You must generate exactly one line of Python code that:
+1. Uses one of the available tools
+2. Takes the input audio path from the step info
+3. Outputs to the specified output path
+4. Includes any necessary parameters
+"""
 
 
 # Tools for the coordinator agent
@@ -171,12 +215,14 @@ def add_step_context(ctx: RunContext[WorkflowState]) -> str:
 async def create_workflow_markdown(
     ctx: RunContext[WorkflowState],
     task_description: str,
-    audio_path: str,
     workflow_id: str
 ) -> str:
     """Create the initial Markdown workflow file."""
     with logfire.span("create_workflow_markdown"):
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Use the actual filename from the original_audio path in the context
+        input_audio = ctx.deps.original_audio.name
         
         content = f"""# Audio Processing Workflow: {workflow_id}
 
@@ -186,7 +232,7 @@ async def create_workflow_markdown(
     ```text
     {task_description}
     ```
-* **Input Audio:** `{audio_path}`
+* **Input Audio:** `{input_audio}`  # Correctly uses context here
 * **Timestamp:** `{timestamp}`
 * **Workflow ID:** `{workflow_id}`
 
@@ -245,12 +291,12 @@ async def generate_plan_and_prd(
         
         # Create the steps content
         steps_content = "\n\n".join([
-            f"### Step {i+1}: {step['title']}\n\n"
-            f"* **ID:** `{step['id']}`\n"
-            f"* **Description:** {step['description']}\n"
+            f"### Step {i+1}: {step.title}\n\n"
+            f"* **ID:** `{step.id}`\n"
+            f"* **Description:** {step.description}\n"
             f"* **Status:** READY\n"
-            f"* **Input Audio:** `{step['input_audio']}`\n"
-            f"* **Output Audio:** `{step['output_audio']}`\n"
+            f"* **Input Audio:** `{step.input_audio}`\n"
+            f"* **Output Audio:** `{step.output_audio}`\n"
             f"* **Code:**\n```python\n# Placeholder - will be generated by Code Generator\n```\n"
             f"* **Execution Results:**\n```text\n# Placeholder - will be filled by Executor\n```\n"
             f"* **Timestamp Start:** `N/A`\n"
@@ -776,6 +822,73 @@ def _update_step_fields(
         
         logfire.warning(f"Step '{step_id}' not found in {markdown_file}")
         return False
+
+
+def _get_step_info(workflow_file: Path, step_id: str) -> Optional[StepInfo]:
+    """Get information about a specific step from the workflow markdown file.
+    
+    Args:
+        workflow_file: Path to the workflow markdown file
+        step_id: ID of the step to find (e.g., step_1)
+        
+    Returns:
+        StepInfo object if found, None otherwise
+    """
+    with logfire.span("get_step_info", step_id=step_id):
+        if not workflow_file.exists():
+            logfire.error(f"Workflow file not found: {workflow_file}")
+            return None
+            
+        with open(workflow_file, "r") as f:
+            content = f.read()
+            
+        # Find the step section
+        step_pattern = f"### Step \\d+: .*?\\n\\n(.*?)(?=\\n### |\\n## |\\Z)"
+        step_matches = list(re.finditer(step_pattern, content, re.DOTALL))
+        
+        for match in step_matches:
+            step_content = match.group(1)
+            
+            # Check if this is the step we're looking for
+            id_pattern = r"\* \*\*ID:\*\* `(.*?)`"
+            id_match = re.search(id_pattern, step_content)
+            
+            if id_match and id_match.group(1) == step_id:
+                # Extract step information
+                title_pattern = r"### Step \d+: (.*?)\\n"
+                title_match = re.search(title_pattern, content[:match.start()])
+                
+                desc_pattern = r"\* \*\*Description:\*\* (.*?)\\n"
+                desc_match = re.search(desc_pattern, step_content)
+                
+                status_pattern = r"\* \*\*Status:\*\* (.*?)\\n"
+                status_match = re.search(status_pattern, step_content)
+                
+                input_pattern = r"\* \*\*Input Audio:\*\* `(.*?)`"
+                input_match = re.search(input_pattern, step_content)
+                
+                output_pattern = r"\* \*\*Output Audio:\*\* `(.*?)`"
+                output_match = re.search(output_pattern, step_content)
+                
+                code_pattern = r"\* \*\*Code:\*\*\s*```python\s*(.*?)\s*```"
+                code_match = re.search(code_pattern, step_content, re.DOTALL)
+                
+                results_pattern = r"\* \*\*Execution Results:\*\*\s*```text\s*(.*?)\s*```"
+                results_match = re.search(results_pattern, step_content, re.DOTALL)
+                
+                return StepInfo(
+                    id=step_id,
+                    title=title_match.group(1) if title_match else "Unknown Step",
+                    description=desc_match.group(1) if desc_match else "",
+                    status=status_match.group(1) if status_match else "PENDING",
+                    input_audio=input_match.group(1) if input_match else "",
+                    output_audio=output_match.group(1) if output_match else "",
+                    code=code_match.group(1).strip() if code_match else None,
+                    execution_results=results_match.group(1).strip() if results_match else None
+                )
+                
+        logfire.warning(f"Step {step_id} not found in workflow file")
+        return None
 
 
 class AudioProcessingCoordinator:

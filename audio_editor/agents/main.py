@@ -6,7 +6,7 @@ import asyncio
 import argparse
 import logfire
 from pathlib import Path
-
+import inspect
 from audio_editor.agents.coordinator import AudioProcessingCoordinator
 
 

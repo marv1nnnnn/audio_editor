@@ -23,7 +23,10 @@ class PlanStep(BaseModel):
     tool_name: str
     tool_args: str = Field(default="{}")  # Store as JSON string
     
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(
+        extra='forbid',
+        json_schema_extra={"additionalProperties": True}  # Allow additional properties for Gemini
+    )
 
 
 class AudioPlan(BaseModel):
@@ -35,7 +38,10 @@ class AudioPlan(BaseModel):
     is_complete: bool = False
     checkpoint_indices: List[int] = Field(default_factory=list)
 
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(
+        extra='forbid',
+        json_schema_extra={"additionalProperties": True}  # Allow additional properties for Gemini
+    )
 
 
 class ExecutionResult(BaseModel):
@@ -47,7 +53,10 @@ class ExecutionResult(BaseModel):
     output_paths: Optional[List[str]] = None
     duration: float = 0.0
     
-    model_config = {"extra": "forbid"}
+    model_config = ConfigDict(
+        extra='forbid',
+        json_schema_extra={"additionalProperties": True}  # Allow additional properties for Gemini
+    )
 
 
 class AudioInput(BaseModel):
@@ -55,7 +64,10 @@ class AudioInput(BaseModel):
     transcript: str
     timestamp: float
     
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(
+        extra='forbid',
+        json_schema_extra={"additionalProperties": True}  # Allow additional properties for Gemini
+    )
 
 
 class ToolDefinition(BaseModel):
@@ -66,8 +78,8 @@ class ToolDefinition(BaseModel):
     docstring: str = Field(description="Full documentation of the tool")
     
     model_config = ConfigDict(
-        extra='forbid'
-        # Remove json_schema_extra, Pydantic generates schema from fields
+        extra='forbid',
+        json_schema_extra={"additionalProperties": True}  # Allow additional properties for Gemini
     )
 
 
@@ -78,7 +90,11 @@ class ExecutorOutput(BaseModel):
     persistent_failure: bool = False
     retry_count: int = 0
     
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(
+        extra='forbid',
+        json_schema_extra={"additionalProperties": True}  # Allow additional properties for Gemini
+    )
+
 
 # New models for the optimized workflow
 
@@ -89,8 +105,18 @@ class CritiqueResult(BaseModel):
     improved_version: Optional[str] = None
     reasoning: str
     critique_type: str
-    
-    model_config = ConfigDict(extra='forbid')
+
+
+# Define a specific class for metrics to avoid using Dict with additionalProperties
+class QAMetrics(BaseModel):
+    """Metrics for quality assessment."""
+    clarity_score: Optional[float] = None
+    noise_level: Optional[float] = None
+    quality_rating: Optional[float] = None
+    processing_time_ms: Optional[int] = None
+    sample_rate: Optional[int] = None
+    bit_depth: Optional[int] = None
+    file_size_kb: Optional[int] = None
 
 
 class QAResult(BaseModel):
@@ -98,10 +124,8 @@ class QAResult(BaseModel):
     meets_requirements: bool
     issues: List[str] = []
     suggestions: List[str] = []
-    metrics: Dict[str, Union[int, float, str]] = Field(default_factory=dict)
+    metrics: QAMetrics = Field(default_factory=QAMetrics)  # Use the dedicated metrics class
     reasoning: str
-    
-    model_config = ConfigDict(extra='forbid')
 
 
 class ErrorAnalysisResult(BaseModel):
@@ -112,8 +136,6 @@ class ErrorAnalysisResult(BaseModel):
     code_fixes: Optional[str] = None
     requires_replanning: bool = False
     confidence: float
-    
-    model_config = ConfigDict(extra='forbid')
 
 
 class UserFeedbackRequest(BaseModel):
@@ -123,16 +145,12 @@ class UserFeedbackRequest(BaseModel):
     options: Optional[List[str]] = None
     severity: str = "info"
     request_type: str
-    
-    model_config = {"extra": "forbid"}
 
 
 class UserFeedbackResponse(BaseModel):
     """Response from the user to a feedback request."""
     response: str
     timestamp: float
-    
-    model_config = {"extra": "forbid"}
 
 
 class StepInfo(BaseModel):
@@ -147,24 +165,18 @@ class StepInfo(BaseModel):
     execution_results: Optional[str] = Field(default=None, description="Results from executing the step")
     timestamp_start: Optional[str] = Field(default=None, description="When step execution started")
     timestamp_end: Optional[str] = Field(default=None, description="When step execution finished/failed")
-    
-    model_config = {"extra": "forbid"}
 
 
 class PlanResult(BaseModel):
     """Result from the planner agent."""
     prd: str = Field(..., description="The Product Requirements Document")
     steps: List[StepInfo] = Field(..., description="The list of processing steps")
-    
-    model_config = {"extra": "forbid"}
 
 
 class CodeGenerationResult(BaseModel):
     """Result from the code generation agent."""
     code: str = Field(..., description="Generated Python code for the step")
     explanation: Optional[str] = Field(default=None, description="Explanation of the generated code")
-    
-    model_config = {"extra": "forbid"}
 
 
 class ProcessingResult(BaseModel):
@@ -172,6 +184,4 @@ class ProcessingResult(BaseModel):
     output_path: str = Field(..., description="Path to the final processed audio")
     status: str = Field(..., description="Overall processing status")
     steps_completed: int = Field(..., description="Number of completed steps")
-    qa_result: Optional[QAResult] = Field(default=None, description="Results of quality assessment")
-    
-    model_config = {"extra": "forbid"} 
+    qa_result: Optional[QAResult] = Field(default=None, description="Results of quality assessment") 
