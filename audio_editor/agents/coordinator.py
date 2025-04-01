@@ -77,14 +77,15 @@ coordinator_agent = Agent(
     deps_type=WorkflowState,
     result_type=ProcessingResult,
     system_prompt="""
-    You are an audio processing coordinator. Your job is to:
-    1. Generate a plan for processing audio
-    2. Generate code for each step
-    3. Execute the code
-    4. Track progress in a Markdown file
-    5. Return the final processed audio
-
-    You will maintain a workflow in Markdown format.
+    You are the Markdown Coordinator for an audio processing system. Your responsibilities:
+    1. Maintain a comprehensive workflow document (PRD) tracking all processing steps
+    2. Coordinate between planning, code generation, and critique agents
+    3. Determine when the audio processing goal has been achieved
+    4. Ensure the final output meets the quality standards
+    
+    Your primary role is orchestration - you don't process audio directly but manage the agents that do.
+    Keep the workflow markdown updated after each step with status, inputs/outputs, and results.
+    Use the markdown to track progress, document decisions, and create a clear audit trail.
     """
 )
 
@@ -95,63 +96,31 @@ planner_agent = Agent(
     deps_type=WorkflowState,
     result_type=PlanResult,
     system_prompt="""
-    You are a planning agent for audio processing. Your job is to:
-    1. Create a detailed Product Requirements Document (PRD) based on the task
+    You are the Creative Planner for audio processing. Your responsibilities:
+    1. Analyze the audio and task description to formulate processing strategies
     2. Design a sequence of specific, achievable processing steps
-    3. Include quality validation steps after significant processing
-    4. Consider reference audio generation when it would help guide processing
-
+    3. Be highly creative and consider unconventional approaches
+    4. Incorporate reference audio generation when it would improve results
+    5. Update plans based on feedback from the Critic Agent
+    
+    IMPORTANT PRINCIPLES:
+    - Think outside the box - consider techniques beyond standard filters/effects
+    - Use AUDIO_GENERATE to create reference audio when it would guide processing
+    - Adapt your plan based on quality critique feedback
+    - Consider human perception of audio quality, not just technical metrics
+    
     Each step must have:
     - A descriptive title
     - A unique ID (step_1, step_2, etc.)
     - A detailed description of what it should accomplish
     - Input and output paths
-    - Step type: "processing", "validation", or "reference"
-
-    For validation steps:
-    - Add these after significant processing operations
-    - Use "validation" as the step type
-    - The output path should match the input path (validation doesn't modify audio)
-    - Describe what specific aspects of quality to validate
-
-    For reference generation steps:
-    - Use "reference" as the step type
-    - Describe the characteristics the reference should have
-    - Name the output with a descriptive name like "professional_reference.wav"
+    - Step type: "processing", "validation", "reference", or "compare"
     
     Rules for file paths:
-    1. The first step MUST use the EXACT input audio filename. **This filename is available in the dependencies object as `deps.original_audio.name`. Use this value directly.**
-    2. Each subsequent step's input path MUST match the previous step's output path
-    3. Output paths should be descriptive of the operation (e.g., "normalized_audio.wav", "filtered_audio.wav")
-    4. All paths are relative to the working directory (`deps.workspace_dir`). **Only use the filename for the paths in the plan.**
-    5. Never assume or create arbitrary paths.
-    6. NEVER use generic names like "input.wav" or "output.wav"
-    7. DO NOT modify or change the input filename obtained from `deps.original_audio.name`.
-
-    Example (Assuming deps.original_audio.name is 'sample1.wav'):
-    ### Step 1: Apply High-Pass Filter
-
-    * **ID:** `step_1`
-    * **Description:** Remove low frequencies below 400 Hz to reduce rumble
-    * **Step Type:** `processing`
-    * **Input Audio:** `sample1.wav`  # MUST match deps.original_audio.name
-    * **Output Audio:** `highpass_filtered.wav`
-
-    ### Step 2: Validate High-Pass Filter Results
-
-    * **ID:** `step_2`
-    * **Description:** Analyze the frequency content to ensure rumble is removed without affecting vocal clarity
-    * **Step Type:** `validation`
-    * **Input Audio:** `highpass_filtered.wav`  # Match previous step's output
-    * **Output Audio:** `highpass_filtered.wav`  # Same as input for validation steps
-
-    ### Step 3: Normalize Volume
-
-    * **ID:** `step_3`
-    * **Description:** Normalize the audio to broadcast standard
-    * **Step Type:** `processing`
-    * **Input Audio:** `highpass_filtered.wav`  # Match previous step's output
-    * **Output Audio:** `normalized_audio.wav`
+    1. The first step MUST use the EXACT input audio filename from deps.original_audio.name
+    2. Each subsequent step's input must match the previous step's output
+    3. Output paths should be descriptive (e.g., "vocal_enhanced.wav")
+    4. Use only filenames, not full paths
     """
 )
 
@@ -162,46 +131,57 @@ code_gen_agent = Agent(
     deps_type=WorkflowState,
     result_type=CodeGenerationResult,
     system_prompt="""
-    You are a code generation agent for audio processing. Your job is to:
-    1. Generate Python code to implement a specific step in the audio processing workflow
-    2. Use the correct tool from the available tool definitions
-    3. Use the EXACT file paths from the step information
-    4. Generate different code based on the step type (processing, validation, or reference)
+    You are the Code Generation specialist for audio processing. Your responsibilities:
+    1. Generate precise, executable Python code for each processing step
+    2. Use only the available audio processing tools from the tool definitions
+    3. Ensure code is optimized for audio quality and processing efficiency
     
-    Rules for code generation:
-    1. Use ONLY the tools provided in the tool definitions
-    2. Each tool takes a wav_path input and usually returns an output path
-    3. ALWAYS use the EXACT input_audio path from the step info - do not modify or assume paths
-    4. ALWAYS use the EXACT output_audio path from the step info - do not modify or assume paths
-    5. Include any necessary parameters based on the tool's signature
-    6. Return executable Python code - a single line for processing steps or multiple lines for analysis
-    7. Do not add any imports or other statements not needed for execution
-    8. ALWAYS use keyword arguments (e.g., wav_path="sample_1.wav") instead of positional arguments
-    9. NEVER assume or hardcode file paths - they must come from the step info
+    CRITICAL CODE RULES:
+    1. Always use EXACT file paths from the step information
+    2. Use keyword arguments (e.g., wav_path="sample.wav") not positional args
+    3. Do not add imports or statements not needed for execution
+    4. Return a single line for simple processing or multiple lines as needed
+    5. Adjust your code generation based on the step type (processing/validation/reference)
     
     FOR DIFFERENT STEP TYPES:
+    - "processing": Focus on transforming audio (e.g., LOUDNESS_NORM, EQ, etc.)
+    - "validation": Use AUDIO_QA to analyze quality
+    - "reference": Use AUDIO_GENERATE to create reference audio
+    - "compare": Use AUDIO_DIFF to compare multiple audio files
     
-    For "processing" steps:
-    - Return a single line of code using a processing function like LOUDNESS_NORM
-    - Example: LOUDNESS_NORM(wav_path="input.wav", volume=-20.0, out_wav="output.wav")
+    The code MUST be executable by the MCP without modification. Be precise.
+    """
+)
+
+
+# 4. Add new Critic Agent
+critic_agent = Agent(
+    'gemini-2.0-flash',
+    deps_type=WorkflowState,
+    result_type=QualityAssessmentResult,
+    system_prompt="""
+    You are the Audio Quality Critic for the audio processing system. Your responsibilities:
+    1. Analyze processed audio using AUDIO_QA for technical quality assessment
+    2. Compare original vs processed audio using AUDIO_DIFF to evaluate improvements
+    3. Provide detailed feedback on strengths and weaknesses of the processing
+    4. Recommend specific improvements to address identified issues
+    5. Determine if processing goals have been achieved or require further work
     
-    For "validation" steps:
-    - Use AUDIO_QA to analyze the audio quality
-    - Provide a specific prompt relevant to the validation goal
-    - Example: AUDIO_QA(wav_path="processed.wav", task="Analyze the frequency balance and identify any issues in the low end")
+    CRITICAL ANALYSIS AREAS:
+    - Frequency balance (bass, mids, treble)
+    - Dynamic range and consistency
+    - Clarity and intelligibility
+    - Artifacts or distortion
+    - Overall professional quality
     
-    For "reference" steps:
-    - Use AUDIO_GENERATE to create reference audio
-    - Provide a detailed description based on the step requirements
-    - Example: AUDIO_GENERATE(text="Professional quality music with clear vocals and balanced frequency response", filename="reference.wav", audio_length_in_s=10.0)
+    Your analysis must be:
+    1. Specific - identify precise issues (e.g., "harsh sibilance at 7kHz")
+    2. Actionable - suggest concrete steps to address problems
+    3. Prioritized - focus on the most significant issues first
+    4. Balanced - acknowledge strengths while identifying weaknesses
     
-    For comparison steps:
-    - Use AUDIO_DIFF to compare multiple audio files
-    - Provide specific comparison instructions
-    - Example: AUDIO_DIFF(wav_paths=["original.wav", "processed.wav"], task="Compare the original and processed files and identify improvements and remaining issues")
-    
-    The MCP executor will automatically handle placing the files in the correct audio directory.
-    You should NOT include the audio directory in the paths you generate.
+    The Planner will use your critique to adjust the processing strategy.
+    Be thorough but constructive in your criticism.
     """
 )
 
@@ -857,276 +837,259 @@ async def finish_workflow(
 
 
 @coordinator_agent.tool
-async def assess_audio_quality(
+async def critique_processed_audio(
     ctx: RunContext[WorkflowState],
-    audio_path: str,
-    specific_question: Optional[str] = None
+    step_id: str,
+    processed_audio_path: str,
+    original_audio_path: Optional[str] = None
 ) -> QualityAssessmentResult:
-    """Assess the quality of an audio file using AUDIO_QA."""
-    with logfire.span("assess_audio_quality"):
-        if not specific_question:
-            specific_question = "Analyze this audio for quality, balance, and professional sound. What issues need fixing?"
-            
-        # Get the full path to the audio file
-        full_audio_path = ctx.deps.workspace_dir / "audio" / audio_path
+    """Analyze processed audio quality and compare with original if provided."""
+    with logfire.span("critique_processed_audio", step_id=step_id):
+        # Update workflow log
+        _append_workflow_log(ctx.deps.workflow_file, f"Critiquing audio from step {step_id}...")
         
-        if not full_audio_path.exists():
-            error_msg = f"Audio file not found: {full_audio_path}"
+        # Get full paths
+        processed_path = ctx.deps.workspace_dir / "audio" / processed_audio_path
+        original_path = ctx.deps.workspace_dir / "audio" / original_audio_path if original_audio_path else None
+        
+        if not processed_path.exists():
+            error_msg = f"Processed audio file not found: {processed_path}"
             logfire.error(error_msg)
             return QualityAssessmentResult(
                 assessment=f"Error: {error_msg}",
+                score=0.0,
                 recommendations=["Ensure the audio file exists before assessment"]
             )
             
         try:
-            # Call AUDIO_QA function
-            logfire.info(f"Assessing audio quality for {full_audio_path}")
-            assessment = audio_tools.AUDIO_QA(str(full_audio_path), specific_question)
+            # Create critic context
+            critic_deps = ctx.deps.model_copy()
+            critic_deps.current_step_id = step_id
             
-            # Parse the assessment to extract recommendations
-            recommendations = []
-            for line in assessment.split('\n'):
-                if any(kw in line.lower() for kw in ['recommend', 'suggest', 'should', 'improve', 'enhance']):
-                    recommendations.append(line.strip())
-                    
-            # Add to workflow log
-            _append_workflow_log(ctx.deps.workflow_file, f"Assessed audio quality for {audio_path}")
+            # Load audio content for direct model access
+            audio_content = _load_audio_content(processed_path)
+            if audio_content:
+                critic_deps.audio_content = audio_content
             
-            return QualityAssessmentResult(
-                assessment=assessment,
-                recommendations=recommendations[:5]  # Limit to top 5 recommendations
-            )
-        except Exception as e:
-            error_msg = f"Error assessing audio quality: {str(e)}"
-            logfire.error(error_msg)
-            return QualityAssessmentResult(
-                assessment=error_msg,
-                recommendations=["Try a different analysis approach"]
-            )
-
-@coordinator_agent.tool
-async def compare_audio_files(
-    ctx: RunContext[WorkflowState],
-    original_audio: str,
-    processed_audio: str,
-    comparison_focus: Optional[str] = None
-) -> AudioComparisonResult:
-    """Compare original and processed audio files using AUDIO_DIFF."""
-    with logfire.span("compare_audio_files"):
-        # Get the full paths to the audio files
-        original_path = ctx.deps.workspace_dir / "audio" / original_audio
-        processed_path = ctx.deps.workspace_dir / "audio" / processed_audio
-        
-        if not original_path.exists() or not processed_path.exists():
-            missing = []
-            if not original_path.exists():
-                missing.append(f"Original audio: {original_path}")
-            if not processed_path.exists():
-                missing.append(f"Processed audio: {processed_path}")
+            # Create quality analysis prompt
+            quality_prompt = f"""
+            Analyze the audio quality of the processed file: {processed_audio_path}
+            
+            What to evaluate:
+            1. Overall sound quality and professional polish
+            2. Frequency balance (bass, mids, treble)
+            3. Dynamic range and consistency
+            4. Clarity and intelligibility
+            5. Artifacts or distortion
+            6. Effectiveness of processing relative to the task objective: "{ctx.deps.task_description}"
+            
+            Provide specific, actionable feedback on strengths and weaknesses.
+            """
+            
+            # Add comparison prompt if original audio provided
+            if original_path and original_path.exists():
+                comparison_prompt = f"""
+                Compare the processed audio ({processed_audio_path}) with the original ({original_audio_path}):
                 
-            error_msg = f"Audio file(s) not found: {', '.join(missing)}"
-            logfire.error(error_msg)
-            return AudioComparisonResult(
-                comparison=f"Error: {error_msg}",
-                improvements=[],
-                issues=["Missing audio files"]
-            )
-            
-        try:
-            # Create comparison focus if not provided
-            if not comparison_focus:
-                comparison_focus = """
-                Compare these audio files and analyze the differences:
-                1. What improvements were made in the processed file?
-                2. What issues were fixed?
-                3. What new issues might have been introduced?
-                4. Which file sounds better overall and why?
-                5. What should be the next processing step to further improve?
+                1. What improvements were achieved?
+                2. What issues were resolved?
+                3. What new problems may have been introduced?
+                4. What further processing is recommended?
+                
+                Provide a score from 0-10 where 10 means perfect processing that achieves all goals.
                 """
                 
-            # Call AUDIO_DIFF function
-            logfire.info(f"Comparing audio files: {original_path} and {processed_path}")
-            comparison = audio_tools.AUDIO_DIFF(
-                [str(original_path), str(processed_path)],
-                comparison_focus
-            )
-            
-            # Parse the comparison to extract improvements and issues
-            improvements = []
-            issues = []
-            preferred_file = None
-            
-            lines = comparison.split('\n')
-            for i, line in enumerate(lines):
-                # Detect improvements
-                if any(kw in line.lower() for kw in ['improve', 'better', 'enhanced', 'fixed']):
-                    improvements.append(line.strip())
-                # Detect issues
-                if any(kw in line.lower() for kw in ['issue', 'problem', 'worse', 'degraded']):
-                    issues.append(line.strip())
-                # Detect preferred file
-                if 'better' in line.lower() and ('file' in line.lower() or 'audio' in line.lower()):
-                    if 'original' in line.lower() or 'first' in line.lower():
-                        preferred_file = original_audio
-                    elif 'processed' in line.lower() or 'second' in line.lower():
-                        preferred_file = processed_audio
-            
-            # Add to workflow log
-            _append_workflow_log(ctx.deps.workflow_file, f"Compared audio files: {original_audio} vs {processed_audio}")
-            
-            return AudioComparisonResult(
-                comparison=comparison,
-                improvements=improvements[:3],  # Limit to top 3
-                issues=issues[:3],  # Limit to top 3
-                preferred_file=preferred_file
-            )
-        except Exception as e:
-            error_msg = f"Error comparing audio files: {str(e)}"
-            logfire.error(error_msg)
-            return AudioComparisonResult(
-                comparison=error_msg,
-                improvements=[],
-                issues=["Error during comparison"]
-            )
-
-@coordinator_agent.tool
-async def generate_audio_example(
-    ctx: RunContext[WorkflowState],
-    description: str,
-    output_filename: str,
-    duration: float = 5.0
-) -> str:
-    """Generate an audio example based on a text description."""
-    with logfire.span("generate_audio_example"):
-        # Ensure output filename has .wav extension
-        if not output_filename.lower().endswith(".wav"):
-            output_filename += ".wav"
-            
-        # Get the full path for the output file
-        output_path = ctx.deps.workspace_dir / "audio" / output_filename
-        
-        try:
-            # Call AUDIO_GENERATE function
-            logfire.info(f"Generating audio example: {description}")
-            result_path = audio_tools.AUDIO_GENERATE(
-                description,
-                str(output_path),
-                audio_length_in_s=duration
-            )
-            
-            # Add to workflow log
-            _append_workflow_log(
-                ctx.deps.workflow_file,
-                f"Generated audio example: '{description}' -> {output_filename}"
-            )
-            
-            return output_filename
-        except Exception as e:
-            error_msg = f"Error generating audio example: {str(e)}"
-            logfire.error(error_msg)
-            return f"Error: {error_msg}"
-
-# Enhance the execute_code_for_step to include quality assessment
-@coordinator_agent.tool
-async def execute_code_for_step_with_validation(
-    ctx: RunContext[WorkflowState],
-    step_id: str,
-    code: str,
-    validate_output: bool = True
-) -> ExecutionResult:
-    """Execute the code for a specific step and validate the output quality."""
-    with logfire.span("execute_code_for_step_with_validation", step_id=step_id):
-        # Get the original execution result
-        execution_result = await execute_code_for_step(ctx, step_id, code)
-        
-        # If execution failed or validation not requested, return the result
-        if execution_result.status != "SUCCESS" or not validate_output:
-            return execution_result
-            
-        # Get step info to access input/output paths
-        step_info = _get_step_info(ctx.deps.workflow_file, step_id)
-        if not step_info or not step_info.output_audio:
-            logfire.warning(f"Cannot validate output: Missing step info or output path for step {step_id}")
-            return execution_result
-            
-        try:
-            # Assess the quality of the output audio
-            logfire.info(f"Validating output quality for step {step_id}")
-            assessment_result = await assess_audio_quality(ctx, step_info.output_audio)
-            
-            # If this isn't the first step, compare with input
-            comparison_result = None
-            if step_info.input_audio != ctx.deps.original_audio.name:
-                logfire.info(f"Comparing input and output for step {step_id}")
-                comparison_result = await compare_audio_files(
-                    ctx,
-                    step_info.input_audio,
-                    step_info.output_audio
+                # Call the critic agent
+                result = await critic_agent.run(
+                    [quality_prompt, comparison_prompt], 
+                    deps=critic_deps
                 )
-                
-            # Update the step with the validation results
-            validation_text = f"Quality Assessment:\n{assessment_result.assessment}\n\n"
-            if comparison_result:
-                validation_text += f"Comparison with Input:\n{comparison_result.comparison}\n\n"
-                
-            # Add recommendations if any
-            if assessment_result.recommendations:
-                validation_text += "Recommendations:\n"
-                for rec in assessment_result.recommendations:
-                    validation_text += f"- {rec}\n"
-                    
-            # Update the step in the workflow markdown
+            else:
+                # Call the critic agent with just quality analysis
+                result = await critic_agent.run(
+                    quality_prompt, 
+                    deps=critic_deps
+                )
+            
+            # Process the result
+            if hasattr(result, 'data'):
+                critique = result.data
+            else:
+                # Handle string result
+                critique = QualityAssessmentResult(
+                    assessment=str(result),
+                    score=None,
+                    recommendations=[]
+                )
+            
+            # Update the step with critique results
             _update_step_fields(
                 ctx.deps.workflow_file,
                 step_id,
-                {"Quality Validation": "DONE"},
-                execution_results=f"{execution_result.output}\n\n--- Validation Results ---\n{validation_text}"
+                {"Quality Assessment": "COMPLETED"},
+                execution_results=f"--- QUALITY CRITIQUE ---\n{critique.assessment}\n\nRECOMMENDATIONS:\n" + 
+                                 "\n".join([f"- {rec}" for rec in critique.recommendations])
             )
             
             # Add to workflow log
             _append_workflow_log(
                 ctx.deps.workflow_file,
-                f"Validated output quality for step {step_id}"
+                f"Completed quality critique for step {step_id}. Score: {critique.score or 'N/A'}"
             )
             
-            # If issues detected, consider suggesting improvements
-            if assessment_result.recommendations or (comparison_result and comparison_result.issues):
-                logfire.info(f"Quality issues detected in step {step_id}, suggesting improvements")
-                
-            # Return the original execution result
-            return execution_result
+            return critique
         except Exception as e:
-            logfire.error(f"Error during quality validation: {str(e)}")
-            return execution_result
+            error_msg = f"Error during audio critique: {str(e)}"
+            logfire.error(error_msg)
+            return QualityAssessmentResult(
+                assessment=error_msg,
+                score=0.0,
+                recommendations=["Technical error during analysis"]
+            )
 
-# Update planner agent to include quality validation steps
-@planner_agent.system_prompt
-def add_quality_validation_guidance(ctx: RunContext[WorkflowState]) -> str:
-    """Add guidance for including quality validation steps in the plan."""
-    return """
-    For more effective audio processing, consider including these types of steps in your plan:
-    
-    1. Quality Assessment Steps: After significant processing operations, add a step to check audio quality
-    2. Comparison Steps: Compare before/after for important changes to ensure improvements
-    3. Reference Generation: When appropriate, generate reference audio for comparison
-    
-    Example quality assessment step:
-    ### Step 4: Validate Processing Quality
-    
-    * **ID:** `step_4`
-    * **Description:** Analyze the processed audio to verify quality and identify any issues
-    * **Input Audio:** `previous_step_output.wav`
-    * **Output Audio:** `same_as_input.wav`  # Quality check doesn't modify the file
-    
-    These validation steps help ensure the audio quality meets requirements at each stage.
-    """
+
+@coordinator_agent.tool
+async def update_plan_with_critique(
+    ctx: RunContext[WorkflowState],
+    critique_result: QualityAssessmentResult,
+    current_step_id: str
+) -> bool:
+    """Update the processing plan based on critic feedback."""
+    with logfire.span("update_plan_with_critique"):
+        # Update workflow log
+        _append_workflow_log(ctx.deps.workflow_file, f"Updating plan based on critique from step {current_step_id}...")
+        
+        # Get current markdown content
+        markdown_content = _read_markdown_file(ctx.deps.workflow_file)
+        
+        # Copy dependencies and add critique
+        planner_deps = ctx.deps.model_copy()
+        planner_deps.current_critique = critique_result.model_dump_json()
+        
+        # Call the planner to update the plan
+        update_prompt = f"""
+        Review the critique of step {current_step_id} and update the processing plan:
+        
+        CRITIQUE ASSESSMENT:
+        {critique_result.assessment}
+        
+        RECOMMENDATIONS:
+        {chr(10).join([f"- {rec}" for rec in critique_result.recommendations])}
+        
+        Based on this critique:
+        1. Should the current processing approach continue?
+        2. Are additional steps needed to address issues?
+        3. Should any existing planned steps be modified?
+        4. Is the processing goal achievable with the current approach?
+        
+        Update the plan accordingly. You can:
+        - Add new steps to address specific issues
+        - Modify parameters in upcoming steps
+        - Add validation/comparison steps
+        - Suggest an entirely new approach if needed
+        """
+        
+        try:
+            result = await planner_agent.run(update_prompt, deps=planner_deps)
+            
+            if hasattr(result, 'data') and isinstance(result.data, PlanResult):
+                # Extract any new steps from the plan result
+                if result.data.steps:
+                    # Add new steps to the workflow
+                    steps_section = "\n\n### Updated Plan Based on Critique\n\n"
+                    steps_section += result.data.prd or "Plan updated based on audio quality critique."
+                    steps_section += "\n\n"
+                    
+                    # Add new steps
+                    next_step_num = _get_next_step_number(ctx.deps.workflow_file)
+                    for i, step in enumerate(result.data.steps):
+                        steps_section += f"### Step {next_step_num + i}: {step.title}\n\n"
+                        steps_section += f"* **ID:** `{step.id}`\n"
+                        steps_section += f"* **Description:** {step.description}\n"
+                        steps_section += f"* **Status:** READY\n"
+                        steps_section += f"* **Input Audio:** `{step.input_audio}`\n"
+                        steps_section += f"* **Output Audio:** `{step.output_audio}`\n"
+                        steps_section += f"* **Code:**\n```python\n# Placeholder - will be generated by Code Generator\n```\n"
+                        steps_section += f"* **Execution Results:**\n```text\n# Placeholder - will be filled by Executor\n```\n"
+                        steps_section += f"* **Timestamp Start:** `N/A`\n"
+                        steps_section += f"* **Timestamp End:** `N/A`\n\n"
+                    
+                    # Add the updated plan section to the workflow
+                    _append_markdown_section(ctx.deps.workflow_file, steps_section)
+                    
+                    # Add to workflow log
+                    _append_workflow_log(
+                        ctx.deps.workflow_file,
+                        f"Updated plan with {len(result.data.steps)} new steps based on critique."
+                    )
+                    
+                    return True
+                else:
+                    # No plan update needed or no new steps added
+                    _append_workflow_log(
+                        ctx.deps.workflow_file,
+                        "Critique reviewed, no plan updates needed."
+                    )
+                    return False
+            else:
+                # Handle unexpected result
+                _append_workflow_log(
+                    ctx.deps.workflow_file,
+                    "Failed to update plan based on critique."
+                )
+                return False
+        except Exception as e:
+            error_msg = f"Error updating plan: {str(e)}"
+            logfire.error(error_msg)
+            _append_workflow_log(ctx.deps.workflow_file, f"Error updating plan: {error_msg}")
+            return False
+
+
+# Add helper function to get next step number
+def _get_next_step_number(workflow_file: Path) -> int:
+    """Get the next step number from the workflow markdown file."""
+    with logfire.span("get_next_step_number"):
+        markdown_content = _read_markdown_file(workflow_file)
+        
+        # Find all step headers
+        step_pattern = r"### Step (\d+):"
+        step_matches = re.finditer(step_pattern, markdown_content)
+        
+        # Get all step numbers
+        step_numbers = [int(match.group(1)) for match in step_matches]
+        
+        # Return the next number after the maximum, or 1 if no steps found
+        return max(step_numbers, default=0) + 1
+
+
+# Add helper function to append a section to markdown
+def _append_markdown_section(workflow_file: Path, section_content: str) -> None:
+    """Append a new section to the workflow markdown file."""
+    with logfire.span("append_markdown_section"):
+        markdown_content = _read_markdown_file(workflow_file)
+        
+        # Append the section before the Workflow Log
+        log_section_pos = markdown_content.find("## Workflow Log")
+        if log_section_pos >= 0:
+            updated_content = (
+                markdown_content[:log_section_pos] + 
+                section_content + "\n\n" + 
+                markdown_content[log_section_pos:]
+            )
+        else:
+            # Fallback: Append to the end of the file
+            updated_content = markdown_content + "\n\n" + section_content
+        
+        _write_markdown_file(workflow_file, updated_content)
+        logfire.info(f"Appended new section to {workflow_file}")
+
 
 # Enhance the main processing function
 async def process_audio_with_validation(
     ctx: RunContext[WorkflowState],
     final_validation: bool = True
 ) -> ProcessingResult:
-    """Process the audio with quality validation at key points."""
+    """Process the audio with quality validation and critique-guided refinement."""
     with logfire.span("process_audio_with_validation"):
         # Generate the plan
         plan_result = await generate_plan_and_prd(ctx)
@@ -1146,11 +1109,26 @@ async def process_audio_with_validation(
             ctx.deps.current_step_id = next_step_id
             generated_code = await generate_code_for_step(ctx, next_step_id)
             
-            # Execute the code with validation
+            # Execute the code
             try:
-                result = await execute_code_for_step_with_validation(ctx, next_step_id, generated_code)
+                result = await execute_code_for_step(ctx, next_step_id, generated_code)
                 if result.status == "SUCCESS":
                     completed_steps += 1
+                    
+                    # Get step info for critique
+                    step_info = _get_step_info(ctx.deps.workflow_file, next_step_id)
+                    if step_info and step_info.output_audio:
+                        # Run critic on the processed audio
+                        critique_result = await critique_processed_audio(
+                            ctx, 
+                            next_step_id, 
+                            step_info.output_audio,
+                            step_info.input_audio if step_info.input_audio != step_info.output_audio else None
+                        )
+                        
+                        # Update plan based on critique if needed
+                        if critique_result and critique_result.recommendations:
+                            await update_plan_with_critique(ctx, critique_result, next_step_id)
             except ModelRetry:
                 # Retry will be handled by the coordinator agent
                 continue
@@ -1158,68 +1136,21 @@ async def process_audio_with_validation(
         # Get the final output path
         final_output_path = await get_final_output_path(ctx)
         
-        # Perform comprehensive final validation if requested
+        # Perform final validation
         if final_validation and final_output_path:
-            # Compare original and final output
-            logfire.info("Performing final quality validation")
-            
-            # Get original audio name
+            # Final quality assessment comparing original and final
             original_audio_name = ctx.deps.original_audio.name
-            
-            # Assess final output quality
-            final_assessment = await assess_audio_quality(
-                ctx, 
-                final_output_path,
-                "Evaluate the final processed audio. Does it meet professional standards? What are its strengths and weaknesses?"
-            )
-            
-            # Compare with original
-            final_comparison = await compare_audio_files(
+            final_critique = await critique_processed_audio(
                 ctx,
-                original_audio_name,
+                "final",
                 final_output_path,
-                "Compare the original and final processed audio. What specific improvements were made? Are there any remaining issues?"
+                original_audio_name
             )
             
-            # Update final output section with assessment
-            _update_workflow_section(
-                ctx.deps.workflow_file,
-                "Final Output",
-                {
-                    "Quality Assessment": "DONE",
-                    "Comparison with Original": "DONE"
-                }
-            )
-            
-            # Add detailed assessment to the workflow
-            final_validation_section = f"""
-## 6. Final Quality Assessment
-
-### Audio Quality Analysis
-{final_assessment.assessment}
-
-### Comparison with Original
-{final_comparison.comparison}
-
-### Key Improvements
-{chr(10).join([f"* {item}" for item in final_comparison.improvements])}
-
-### Remaining Issues
-{chr(10).join([f"* {item}" for item in final_comparison.issues])}
-
-### Overall Verdict
-The final processed audio is {"better than" if final_comparison.preferred_file == final_output_path else "not clearly better than"} the original.
-"""
-            
-            # Add the validation section to the workflow file
-            markdown_content = _read_markdown_file(ctx.deps.workflow_file)
-            if "## 6. Final Quality Assessment" not in markdown_content:
-                _write_markdown_file(ctx.deps.workflow_file, markdown_content + final_validation_section)
-            
-            # Add to workflow log
+            # Add final critique to workflow
             _append_workflow_log(
                 ctx.deps.workflow_file,
-                f"Completed final quality validation. {'Improvements detected.' if final_comparison.preferred_file == final_output_path else 'Mixed results.'}"
+                f"Final quality assessment completed. Score: {final_critique.score or 'N/A'}"
             )
         
         # Finish the workflow
