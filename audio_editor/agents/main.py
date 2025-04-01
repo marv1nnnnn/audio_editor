@@ -7,6 +7,7 @@ import argparse
 import logfire
 from pathlib import Path
 import inspect
+import importlib.util
 from audio_editor.agents.coordinator import AudioProcessingCoordinator
 
 
@@ -19,7 +20,8 @@ async def process_audio_file(
     transcript: str = "",
     interactive: bool = True,
     enable_error_analyzer: bool = True,
-    enable_qa: bool = True
+    enable_qa: bool = True,
+    enable_audio_content: bool = True
 ) -> str:
     """
     Process an audio file using the multi-agent system.
@@ -34,12 +36,12 @@ async def process_audio_file(
         interactive: Whether to enable interactive user feedback
         enable_error_analyzer: Whether to enable the Error Analyzer
         enable_qa: Whether to enable the QA Agent
+        enable_audio_content: Whether to enable direct audio content for models
         
     Returns:
         Path to the output audio file
     """
     # Configure Logfire
-
     logfire.configure()
     
     # Set up working directory
@@ -48,13 +50,28 @@ async def process_audio_file(
     
     os.makedirs(working_dir, exist_ok=True)
     
+    # Check if pydantic_ai is installed and supports audio input
+    pydantic_ai_supports_audio = False
+    try:
+        if importlib.util.find_spec("pydantic_ai") is not None:
+            from pydantic_ai import BinaryContent, AudioUrl
+            pydantic_ai_supports_audio = True
+            logfire.info("Pydantic AI with audio support is available")
+        else:
+            logfire.warning("Pydantic AI not found, disabling audio content support")
+            enable_audio_content = False
+    except (ImportError, AttributeError):
+        logfire.warning("Pydantic AI doesn't support audio input, disabling audio content support")
+        enable_audio_content = False
+    
     # Initialize the coordinator with new options
     coordinator = AudioProcessingCoordinator(
         working_dir=working_dir, 
         model_name=model_name,
         interactive=interactive,
         enable_error_analyzer=enable_error_analyzer,
-        enable_qa=enable_qa
+        enable_qa=enable_qa,
+        enable_audio_content=enable_audio_content and pydantic_ai_supports_audio
     )
     
     # Log the task information
@@ -62,6 +79,7 @@ async def process_audio_file(
     logfire.info(f"Input file: {input_file}")
     logfire.info(f"Model: {model_name}")
     logfire.info(f"Working directory: {working_dir}")
+    logfire.info(f"Audio content enabled: {enable_audio_content and pydantic_ai_supports_audio}")
     
     # Process the audio using the appropriate method
     result_path = await coordinator.run_workflow(task, input_file, transcript)
@@ -128,6 +146,11 @@ def main():
         help="Disable the QA Agent for output quality verification"
     )
     parser.add_argument(
+        "--disable-audio-content",
+        action="store_true",
+        help="Disable direct audio content for models (use file paths only)"
+    )
+    parser.add_argument(
         "--log-level",
         choices=["debug", "info", "warning", "error"],
         default="info",
@@ -155,7 +178,8 @@ def main():
             transcript=args.transcript,
             interactive=not args.non_interactive,
             enable_error_analyzer=not args.disable_error_analyzer,
-            enable_qa=not args.disable_qa
+            enable_qa=not args.disable_qa,
+            enable_audio_content=not args.disable_audio_content
         ))
         
         print(f"Audio processing completed successfully. Result: {result_path}")

@@ -7,6 +7,9 @@ from typing import List, Optional, Union, Dict, Any
 
 from pydantic import BaseModel, Field, ConfigDict
 
+# Add import for Pydantic AI's audio input
+from pydantic_ai import AudioUrl, BinaryContent
+
 
 class StepStatus(str, Enum):
     """Status of a plan step."""
@@ -66,6 +69,21 @@ class AudioInput(BaseModel):
     
     model_config = ConfigDict(
         extra='forbid',
+        json_schema_extra={"additionalProperties": True}  # Allow additional properties for Gemini
+    )
+
+
+class AudioContent(BaseModel):
+    """Representation of actual audio content for direct model access."""
+    file_path: Path = Field(..., description="Path to the audio file")
+    content: Optional[Union[AudioUrl, BinaryContent]] = Field(
+        default=None, 
+        description="Audio content for direct model access"
+    )
+    
+    model_config = ConfigDict(
+        extra='forbid',
+        arbitrary_types_allowed=True,  # Allow AudioUrl and BinaryContent types
         json_schema_extra={"additionalProperties": True}  # Allow additional properties for Gemini
     )
 

@@ -13,13 +13,13 @@ import json
 import inspect
 import logfire
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent, RunContext, ModelRetry
+from pydantic_ai import Agent, RunContext, ModelRetry, BinaryContent
 from pydantic_ai.usage import Usage, UsageLimits
 
 from audio_editor import audio_tools
 from .mcp import MCPCodeExecutor
 from .user_feedback import ConsoleUserFeedbackHandler
-from .models import StepInfo, ExecutionResult, PlanResult, ProcessingResult, CodeGenerationResult
+from .models import StepInfo, ExecutionResult, PlanResult, ProcessingResult, CodeGenerationResult, AudioContent
 
 
 # Configure Logfire for debugging
@@ -75,36 +75,32 @@ planner_agent = Agent(
     You are a planning agent for audio processing. Your job is to:
     1. Create a detailed Product Requirements Document (PRD) based on the task
     2. Design a sequence of specific, achievable processing steps
-    
+
     Each step must have:
     - A descriptive title
     - A unique ID (step_1, step_2, etc.)
     - A detailed description of what it should accomplish
     - Input and output paths
-    
+
     Rules for file paths:
-    1. The first step MUST use the EXACT input audio filename shown in the Request Summary section under "Input Audio:"
+    1. The first step MUST use the EXACT input audio filename. **This filename is available in the dependencies object as `deps.original_audio.name`. Use this value directly.**
     2. Each subsequent step's input path MUST match the previous step's output path
     3. Output paths should be descriptive of the operation (e.g., "normalized_audio.wav", "filtered_audio.wav")
-    4. All paths are relative to the working directory
-    5. Never assume or create arbitrary paths - use the workflow's original audio path
+    4. All paths are relative to the working directory (`deps.workspace_dir`). **Only use the filename for the paths in the plan.**
+    5. Never assume or create arbitrary paths.
     6. NEVER use generic names like "input.wav" or "output.wav"
-    7. DO NOT modify or change the input filename from the Request Summary
-    
-    Example:
-    If the Request Summary shows:
-    * **Input Audio:** `sample_1.wav`
-    
-    Then create steps like:
+    7. DO NOT modify or change the input filename obtained from `deps.original_audio.name`.
+
+    Example (Assuming deps.original_audio.name is 'sample1.wav'):
     ### Step 1: Apply High-Pass Filter
-    
+
     * **ID:** `step_1`
     * **Description:** Remove low frequencies below 400 Hz to reduce rumble
-    * **Input Audio:** `sample_1.wav`  # MUST match Request Summary exactly
+    * **Input Audio:** `sample1.wav`  # MUST match deps.original_audio.name
     * **Output Audio:** `highpass_filtered.wav`
-    
+
     ### Step 2: Normalize Volume
-    
+
     * **ID:** `step_2`
     * **Description:** Normalize the audio to broadcast standard
     * **Input Audio:** `highpass_filtered.wav`  # Match previous step's output
@@ -178,8 +174,22 @@ def add_code_gen_context(ctx: RunContext[WorkflowState]) -> str:
         # Get the current step info from the markdown
         step_info = _get_step_info(ctx.deps.workflow_file, ctx.deps.current_step_id)
         if not step_info:
+            logfire.error(f"Error: No step information found for step_id {ctx.deps.current_step_id}") # Added logging
             return "Error: No step information found"
-            
+
+        # --- START NEW CODE ---
+        # Extract the exact path strings needed
+        input_path_value = step_info.input_audio
+        output_path_value = step_info.output_audio
+
+        if not input_path_value:
+            logfire.error(f"Error: Input audio path missing in step info for {step_info.id}")
+            return "Error: Input audio path missing in step info"
+        if not output_path_value:
+            logfire.error(f"Error: Output audio path missing in step info for {step_info.id}")
+            return "Error: Output audio path missing in step info"
+        # --- END NEW CODE ---
+
         # Format tool definitions
         tool_defs = []
         for name, info in ctx.deps.tool_definitions.items():
@@ -187,11 +197,12 @@ def add_code_gen_context(ctx: RunContext[WorkflowState]) -> str:
             tool_defs.append(f"Signature: {info['signature']}")
             tool_defs.append(f"Description: {info['description']}")
             tool_defs.append("")
-            
+
         tools_str = "\n".join(tool_defs)
-        
+
+        # --- MODIFIED RETURN STRING ---
         return f"""
-Current step information:
+Current step information (for context only):
 - ID: {step_info.id}
 - Description: {step_info.description}
 - Input Audio: {step_info.input_audio}
@@ -202,13 +213,21 @@ Available tools:
 
 Task description: {ctx.deps.task_description}
 
-You must generate exactly one line of Python code that:
-1. Uses one of the available tools
-2. Takes the input audio path from the step info
-3. Outputs to the specified output path
-4. Includes any necessary parameters
-"""
+CRITICAL INSTRUCTIONS FOR CODE GENERATION:
+1. You MUST generate exactly one line of Python code.
+2. The code MUST call one of the available tools.
+3. The code MUST use keyword arguments (e.g., wav_path="...").
+4. **Use the EXACT input file path: '{input_path_value}'** for the 'wav_path' argument (or the primary input argument if named differently).
+5. **Use the EXACT output file path: '{output_path_value}'** for the 'out_wav' argument (or the primary output argument if named differently).
+6. Include other necessary parameters based on the tool's signature and the step description.
+7. **DO NOT** use the literal string "original_audio.wav" unless the input path is actually 'original_audio.wav'. Use the value provided: '{input_path_value}'.
 
+Example: If the required input is 'input_file.wav' and output is 'output_file.wav' for LOUDNESS_NORM, generate:
+LOUDNESS_NORM(wav_path="input_file.wav", volume=-20.0, out_wav="output_file.wav")
+
+Now, generate the code for step {step_info.id} using input '{input_path_value}' and output '{output_path_value}'.
+"""
+        # --- END MODIFIED RETURN STRING ---
 
 # Tools for the coordinator agent
 @coordinator_agent.tool
@@ -269,55 +288,103 @@ async def generate_plan_and_prd(
     """Generate the Product Requirements Document and plan using the Planner Agent."""
     with logfire.span("generate_plan_and_prd"):
         logfire.info("Generating plan and PRD...")
-        
+
         # Update workflow log
         _append_workflow_log(ctx.deps.workflow_file, "Generating PRD and plan...")
-        
-        # Call the planner agent
+
+        # --- START NEW/MODIFIED CODE ---
+
+        # Get the actual input filename from the context dependencies
+        original_filename = ctx.deps.original_audio.name
+        if not original_filename:
+             logfire.error("Original audio filename is missing in deps during planning!")
+             # Optionally, return an error or raise an exception
+             # For now, we might fallback, but ideally this should be present
+             original_filename = "fallback_input.wav" # Or raise error
+
+        # Construct a more explicit prompt for the planner agent for THIS specific run
+        # Inject the correct filename directly into the task description/prompt
+        planner_prompt = f"""
+        Generate a PRD and processing steps for the task: '{ctx.deps.task_description}'.
+
+        VERY IMPORTANT: The input audio file for the *first* step (and any other step requiring the original audio) MUST be named exactly: '{original_filename}'
+        Use this filename explicitly where the original audio is needed as input.
+        Do NOT use generic names like 'input.wav' or 'original_audio.wav'. Use '{original_filename}'.
+
+        Follow all other planning rules regarding subsequent step paths (output of step N becomes input of step N+1) and descriptive output names.
+        """
+
+        logfire.info(f"Running planner agent. Explicitly specifying input filename in prompt: {original_filename}")
+
+        # Call the planner agent using the explicit prompt
         planner_result = await planner_agent.run(
-            ctx.deps.task_description,
+            planner_prompt,  # Use the specifically constructed prompt
             deps=ctx.deps
         )
-        
-        # Update the workflow file with the PRD and plan
+        # --- END NEW/MODIFIED CODE ---
+
+        # Log the raw planner result for debugging (handle potential serialization errors)
+        try:
+            # Ensure we are accessing the data attribute which should be PlanResult
+            if hasattr(planner_result, 'data') and isinstance(planner_result.data, PlanResult):
+                 result_json_str = planner_result.data.model_dump_json()
+                 logfire.info(f"Planner agent PLAN result data: {result_json_str}") # Log the actual plan
+            else:
+                 logfire.warning(f"Planner agent result was not in expected format: {type(planner_result.data)}")
+                 result_json_str = "<Error: Planner result data format unexpected>"
+        except Exception as e:
+            result_json_str = f"<Error serializing planner result data: {e}>"
+            logfire.error(result_json_str)
+
+
+        # Check if the planner actually returned valid data
+        if not hasattr(planner_result, 'data') or not isinstance(planner_result.data, PlanResult):
+             _append_workflow_log(ctx.deps.workflow_file, f"Planner agent failed to return valid plan data. Result: {result_json_str}")
+             # Handle the error appropriately, maybe raise or return a specific error object
+             raise ValueError(f"Planner agent did not return a valid PlanResult. See logs.")
+
+
+        # Update the workflow file with the PRD and plan (using planner_result.data)
         markdown_content = _read_markdown_file(ctx.deps.workflow_file)
-        
+
         # Replace the placeholder sections
         updated_content = re.sub(
             r"## 2\. Product Requirements Document \(PRD\)\n\n\*This section will be generated by the Planner Agent\.\*",
-            f"## 2. Product Requirements Document (PRD)\n\n{planner_result.data.prd}",
+            f"## 2. Product Requirements Document (PRD)\n\n{planner_result.data.prd}", # Access .data
             markdown_content
         )
-        
-        # Create the steps content
+
+        # Create the steps content (using planner_result.data.steps)
         steps_content = "\n\n".join([
             f"### Step {i+1}: {step.title}\n\n"
             f"* **ID:** `{step.id}`\n"
             f"* **Description:** {step.description}\n"
             f"* **Status:** READY\n"
+            # --- Ensure the correct filename is used here IF the planner worked ---
             f"* **Input Audio:** `{step.input_audio}`\n"
             f"* **Output Audio:** `{step.output_audio}`\n"
+            # --- / ---
             f"* **Code:**\n```python\n# Placeholder - will be generated by Code Generator\n```\n"
             f"* **Execution Results:**\n```text\n# Placeholder - will be filled by Executor\n```\n"
             f"* **Timestamp Start:** `N/A`\n"
             f"* **Timestamp End:** `N/A`"
-            for i, step in enumerate(planner_result.data.steps)
+            for i, step in enumerate(planner_result.data.steps) # Access .data.steps
         ])
-        
+
         # Replace the processing plan section
         updated_content = re.sub(
             r"## 3\. Processing Plan & Status\n\n\*This section will contain the processing steps generated by the Planner Agent\.\*",
             f"## 3. Processing Plan & Status\n\n{steps_content}",
             updated_content
         )
-        
+
         # Write the updated content
         _write_markdown_file(ctx.deps.workflow_file, updated_content)
-        
+
         # Update workflow log
-        _append_workflow_log(ctx.deps.workflow_file, f"Generated PRD and processing plan with {len(planner_result.data.steps)} steps.")
-        
-        return planner_result.data
+        _append_workflow_log(ctx.deps.workflow_file, f"Generated PRD and processing plan with {len(planner_result.data.steps)} steps.") # Access .data.steps
+
+        return planner_result.data # Return the PlanResult object
 
 
 @coordinator_agent.tool
@@ -391,18 +458,62 @@ async def generate_code_for_step(
         )
         _append_workflow_log(ctx.deps.workflow_file, f"Generating code for step {step_id}...")
         
+        # Get step info to access input/output paths
+        step_info = _get_step_info(ctx.deps.workflow_file, step_id)
+        if not step_info:
+            error_msg = f"Error: No step information found for step_id {step_id}"
+            logfire.error(error_msg)
+            _update_step_fields(
+                ctx.deps.workflow_file,
+                step_id,
+                {"Status": "FAILED"},
+                execution_results=error_msg
+            )
+            return error_msg
+        
+        # Load audio content for direct model access
+        input_audio_path = ctx.deps.workspace_dir / step_info.input_audio
+        audio_content = _load_audio_content(input_audio_path)
+        
         # Update context with current step
         updated_deps = ctx.deps.model_copy()
         updated_deps.current_step_id = step_id
         
+        # Add audio content to dependencies if available
+        if audio_content:
+            logfire.info(f"Adding audio content to dependencies for step {step_id}")
+            updated_deps.audio_content = audio_content
+        
         # Call the code generation agent
-        logfire.info(f"Generating code for step {step_id}")
+        try:
+            deps_json = updated_deps.model_dump_json()
+        except Exception as e:
+            deps_json = f"<Error serializing deps: {e}>"
+        logfire.info(f"Running code generation agent with deps: {deps_json}")
+        
+        # Create message list with both text and audio if available
+        messages = [f"Generate code for step {step_id} in the workflow"]
+        
+        # If we have audio content, include it in the request to the model
+        if audio_content and audio_content.content:
+            logfire.info("Including audio content in the request to the model")
+            messages.append(audio_content.content)
+        
+        # Run the agent with the updated dependencies and messages
         code_result = await code_gen_agent.run(
-            f"Generate code for step {step_id} in the workflow",
+            messages,
             deps=updated_deps
         )
         
-        generated_code = code_result.data.code
+        # Handle the result, which might be a string or an AgentRunResult
+        if hasattr(code_result, 'data'):
+            if hasattr(code_result.data, 'code'):
+                generated_code = code_result.data.code
+            else:
+                generated_code = str(code_result.data)
+        else:
+            generated_code = str(code_result)
+            
         logfire.info(f"Generated code: {generated_code}")
         
         # Update the step with the generated code
@@ -524,9 +635,20 @@ async def analyze_and_fix_error(
             
             The code is typically a single line calling an audio processing function.
             Focus on fixing parameter types, file paths, and function names.
+            
+            IMPORTANT: When fixing file paths:
+            1. Use the exact input file path from the step info
+            2. Do not modify or assume paths
+            3. Keep the output path as specified
             """
         )
         
+        # Get the step info to ensure we use the correct file paths
+        step_info = _get_step_info(ctx.deps.workflow_file, step_id)
+        if not step_info:
+            logfire.error(f"Could not find step info for {step_id}")
+            return False
+            
         # Prepare the prompt
         prompt = f"""
         Analyze and fix the following code that generated an error:
@@ -541,19 +663,35 @@ async def analyze_and_fix_error(
         {error_message}
         ```
         
+        Step information:
+        - Input Audio: {step_info.input_audio}
+        - Output Audio: {step_info.output_audio}
+        
         Available tools:
         {json.dumps(ctx.deps.tool_definitions, indent=2)}
         
         Return ONLY the fixed code, without any explanation or formatting.
+        Make sure to use the exact input file path: {step_info.input_audio}
         """
         
         try:
             # Call the error analyzer
-            logfire.info(f"Analyzing error in step {step_id}")
+            logfire.info(f"Running error analyzer with prompt: {prompt}")
             result = await error_analyzer.run(prompt)
             
-            # Extract the fixed code
-            fixed_code = result.data.strip()
+            # Handle the result, which might be a string or an AgentRunResult
+            if hasattr(result, 'data'):
+                fixed_code = result.data
+            else:
+                fixed_code = str(result)
+                
+            # Clean up the code if it's wrapped in markdown
+            fixed_code = fixed_code.strip()
+            if fixed_code.startswith('```python'):
+                fixed_code = fixed_code[8:]
+            if fixed_code.endswith('```'):
+                fixed_code = fixed_code[:-3]
+            fixed_code = fixed_code.strip()
             
             if fixed_code != code:
                 logfire.info(f"Generated fixed code: {fixed_code}")
@@ -628,6 +766,7 @@ async def finish_workflow(
         _append_workflow_log(ctx.deps.workflow_file, f"Workflow finished successfully. Final output: {final_output_path}")
         
         logfire.info(f"Workflow completed successfully. Final output: {final_output_path}")
+
 
 
 # Helper functions for Markdown manipulation
@@ -891,34 +1030,133 @@ def _get_step_info(workflow_file: Path, step_id: str) -> Optional[StepInfo]:
         return None
 
 
+def _create_workflow_file(workflow_file: Path, task_description: str, input_audio_name: str, transcript: str = "") -> None:
+    """Create and initialize a new workflow markdown file.
+    
+    Args:
+        workflow_file: Path to the workflow file to create
+        task_description: Description of the processing task
+        input_audio_name: Name of the input audio file
+        transcript: Transcript of the audio (if available)
+    """
+    with logfire.span("create_workflow_file", file=str(workflow_file)):
+        # Create basic markdown template
+        template = f"""# Audio Processing Workflow
+
+## 1. Task Description
+
+{task_description}
+
+## 2. Product Requirements Document (PRD)
+
+*This section will be generated by the Planner Agent.*
+
+## 3. Processing Plan & Status
+
+*This section will contain the processing steps generated by the Planner Agent.*
+
+## 4. Input Information
+
+* **Input Audio:** `{input_audio_name}`
+* **Timestamp:** `{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`
+
+"""
+        # Add transcript if available
+        if transcript:
+            template += f"""## 5. Audio Transcript
+
+```
+{transcript}
+```
+
+"""
+
+        # Add log section
+        template += """## Workflow Log
+
+*This section contains logs of the workflow execution.*
+
+"""
+        # Write the file
+        with open(workflow_file, "w") as f:
+            f.write(template)
+            
+        logfire.info(f"Created workflow file: {workflow_file}")
+
+
+def _load_audio_content(audio_path: Path) -> Optional[AudioContent]:
+    """Load audio content for direct model access.
+    
+    Args:
+        audio_path: Path to the audio file
+        
+    Returns:
+        AudioContent object with the audio data loaded, or None if loading fails
+    """
+    with logfire.span("load_audio_content", path=str(audio_path)):
+        try:
+            if not audio_path.exists():
+                logfire.error(f"Audio file not found: {audio_path}")
+                return None
+                
+            # Create an AudioContent object with the file path
+            audio_content = AudioContent(file_path=audio_path)
+            
+            # Load the binary data
+            audio_data = audio_path.read_bytes()
+            
+            # Set the content field using BinaryContent
+            audio_content.content = BinaryContent(
+                data=audio_data,
+                media_type='audio/wav'  # Assuming WAV format, could be made more dynamic
+            )
+            
+            logfire.info(f"Loaded audio content from {audio_path} ({len(audio_data)} bytes)")
+            return audio_content
+            
+        except Exception as e:
+            logfire.error(f"Failed to load audio content from {audio_path}: {e}")
+            return None
+
+
 class AudioProcessingCoordinator:
     """
-    Markdown-centric audio processing coordinator using Pydantic AI.
-    This class provides a backwards-compatible API while using the new implementation.
+    Coordinator for the multi-agent audio processing system.
+    Orchestrates planning, code generation, and execution.
     """
-    
     def __init__(
         self, 
-        working_dir: Path | str, 
+        working_dir: str, 
         model_name: str = "gemini-2.0-flash",
         interactive: bool = True,
         enable_error_analyzer: bool = True,
-        enable_qa: bool = True
+        enable_qa: bool = True,
+        enable_audio_content: bool = True
     ):
         """Initialize the coordinator."""
-        self.working_dir = Path(working_dir).absolute()
-        os.makedirs(self.working_dir, exist_ok=True)
-        
-        self.docs_dir = self.working_dir / "docs"
-        os.makedirs(self.docs_dir, exist_ok=True)
-        
+        self.working_dir = Path(working_dir)
         self.model_name = model_name
         self.interactive = interactive
         self.enable_error_analyzer = enable_error_analyzer
         self.enable_qa = enable_qa
+        self.enable_audio_content = enable_audio_content
         
-        # Create user feedback handler (for backward compatibility)
-        self.feedback_handler = ConsoleUserFeedbackHandler(interactive=interactive)
+        # Create necessary directories
+        self.docs_dir = self.working_dir / "docs"
+        self.audio_dir = self.working_dir / "audio"
+        self.docs_dir.mkdir(exist_ok=True)
+        self.audio_dir.mkdir(exist_ok=True)
+        
+        # Set up user feedback handler if interactive
+        if interactive:
+            self.user_feedback_handler = ConsoleUserFeedbackHandler()
+        else:
+            self.user_feedback_handler = None
+        
+        # For error and usage tracking
+        self.error_count = 0
+        self.total_requests = 0
+        self.retry_limit = 3
         
         # Gather tool definitions
         self.tool_definitions = {}
@@ -949,50 +1187,109 @@ class AudioProcessingCoordinator:
     async def run_workflow(
         self, 
         task_description: str, 
-        audio_file_path: str,
-        audio_transcript: str = ""
+        input_audio_path: str, 
+        transcript: str = ""
     ) -> str:
-        """Process audio using the Pydantic AI-based Markdown-centric workflow."""
-        with logfire.span("run_workflow", task=task_description, file=audio_file_path):
-            start_time = time.time()
+        """
+        Run the audio processing workflow.
+        
+        Args:
+            task_description: Description of the processing task
+            input_audio_path: Path to the input audio file
+            transcript: Transcript of the audio (if available)
             
-            # Copy input file to working directory
-            input_basename = Path(audio_file_path).name
-            working_input = self.working_dir / input_basename
-            
-            # Copy file if not already in working directory
-            if Path(audio_file_path).absolute() != working_input.absolute():
-                import shutil
-                shutil.copy(audio_file_path, working_input)
-                logfire.info(f"Copied {audio_file_path} to {working_input}")
-            
-            # Create a workflow ID and workflow markdown file
-            workflow_id = f"workflow_{int(time.time())}_{hashlib.md5(task_description.encode()).hexdigest()[:8]}"
-            workflow_file = self.docs_dir / f"{workflow_id}.md"
-            
-            # Set up the workflow state for dependency injection
-            workflow_state = WorkflowState(
-                workspace_dir=self.working_dir,
-                workflow_file=workflow_file,
-                task_description=task_description,
-                original_audio=working_input,
-                tool_definitions=self.tool_definitions
+        Returns:
+            Path to the output audio file
+        """
+        # Create unique workflow ID based on inputs
+        task_hash = hashlib.md5((task_description + input_audio_path).encode()).hexdigest()[:8]
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        workflow_id = f"workflow_{timestamp}_{task_hash}"
+        
+        # Create workflow markdown file
+        workflow_file = self.docs_dir / f"{workflow_id}.md"
+        
+        # Copy the input audio to the workspace
+        input_audio = Path(input_audio_path)
+        workspace_input_audio = self.audio_dir / input_audio.name
+        
+        import shutil
+        shutil.copy(input_audio, workspace_input_audio)
+        
+        # Initialize the workflow file
+        _create_workflow_file(
+            workflow_file, 
+            task_description, 
+            workspace_input_audio.name, 
+            transcript
+        )
+        
+        # Load audio content for direct model access if enabled
+        audio_content = None
+        if self.enable_audio_content:
+            audio_content = _load_audio_content(workspace_input_audio)
+            if audio_content:
+                logfire.info(f"Loaded audio content from {workspace_input_audio} for direct model access")
+            else:
+                logfire.warning(f"Failed to load audio content from {workspace_input_audio}")
+        
+        # Create dependencies for the coordinator agent
+        deps = WorkflowState(
+            workspace_dir=self.working_dir,
+            workflow_file=workflow_file,
+            task_description=task_description,
+            original_audio=workspace_input_audio,
+            tool_definitions=self.tool_definitions
+        )
+        
+        # Run the coordinator agent
+        try:
+            # Use the updated coordinator_agent with RunContext
+            result = await coordinator_agent.run(
+                f"""
+                Process the audio file according to the task:
+                "{task_description}"
+                
+                The audio file is located at: {workspace_input_audio}
+                
+                Follow these steps:
+                1. Generate a plan using the Planner Agent
+                2. For each step in the plan:
+                   a. Generate code to execute the step
+                   b. Execute the code to process the audio
+                3. Return the final processed audio file
+                """,
+                deps=deps
             )
             
-            try:
-                # Run the coordinator agent
-                result = await coordinator_agent.run(
-                    f"Process audio file according to this request: {task_description}",
-                    deps=workflow_state,
-                    usage=self.usage,
-                    usage_limits=self.usage_limits
-                )
-                
-                # Return the final output path
+            # Handle the result (might be an AgentRunResult or a string)
+            if hasattr(result, 'data') and isinstance(result.data, ProcessingResult):
+                # Get the path from the ProcessingResult
                 final_output_path = result.data.output_path
-                logfire.info(f"Audio processing completed in {time.time() - start_time:.2f}s")
-                return final_output_path
+                logfire.info(f"Processing completed successfully: {final_output_path}")
+                return self.working_dir / final_output_path
+            else:
+                # If it's a string or another type, try to extract the path
+                if isinstance(result, str):
+                    logfire.warning(f"Agent returned string instead of ProcessingResult: {result}")
+                    # Try to find a path in the string
+                    import re
+                    path_match = re.search(r'(?:output|final|result).*?(?:path|file).*?[\'"]([^\'"]+)[\'"]', result, re.IGNORECASE)
+                    if path_match:
+                        path = path_match.group(1)
+                        return self.working_dir / path
                 
-            except Exception as e:
-                logfire.error(f"Audio processing failed: {str(e)}", exc_info=True)
-                raise 
+                # Fallback: Look for the most recently modified audio file in the workspace
+                audio_files = list(self.audio_dir.glob("*.wav"))
+                if audio_files:
+                    most_recent = max(audio_files, key=os.path.getmtime)
+                    logfire.warning(f"Using most recent audio file as result: {most_recent}")
+                    return most_recent
+                
+                # If all else fails, return the input audio
+                logfire.error("Failed to determine output path, returning input audio")
+                return workspace_input_audio
+        
+        except Exception as e:
+            logfire.error(f"Error running coordinator agent: {e}", exc_info=True)
+            raise 

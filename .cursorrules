@@ -109,6 +109,9 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 - The Gemini 2.0 Flash model is a good default for AI agents that need to balance performance and speed
 - Use pydantic-ai decorators (@agent.system_prompt, @agent.tool) to create well-structured agent interactions
 - When refactoring a monolithic system to a multi-agent architecture, use a coordinator class to manage the workflow
+- When logging LLM requests, always wrap model_dump_json() calls in try-except blocks to handle serialization errors gracefully
+- When handling LLM results, check for both string and AgentRunResult types and handle markdown code blocks in the output
+- When implementing audio processing tools as agent tools, use structured types (Pydantic models) for context and results to ensure proper file path handling and type safety
 
 # Scratchpad
 

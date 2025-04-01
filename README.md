@@ -41,6 +41,7 @@ The system uses a Markdown-centric workflow with multiple specialized AI agents:
    - Converts each step into executable Python code
    - Uses built-in audio processing tools
    - Ensures proper input/output handling
+   - Accesses audio content directly for better understanding (new!)
 
 3. **Executor Agent**
    - Runs the generated code safely
@@ -51,6 +52,7 @@ The system uses a Markdown-centric workflow with multiple specialized AI agents:
    - Verifies output quality
    - Suggests improvements
    - Ensures requirements are met
+   - Compares original and processed audio directly (new!)
 
 ### Workflow Example
 
@@ -86,6 +88,16 @@ All progress is tracked in a Markdown file (`workflow_{timestamp}_{hash}.md`) co
 - **Mixing**: Combine audio, adjust balance
 - **Analysis**: AI-powered content analysis
 
+## New Feature: Direct Audio Content
+
+The system now passes audio directly to AI models using Pydantic AI's audio input capabilities, allowing:
+- Better understanding of audio characteristics
+- More accurate code generation
+- Improved quality assessment
+- Enhanced error analysis
+
+This feature enables the model to "hear" the audio rather than just seeing file paths, resulting in more accurate processing.
+
 ## Command Line Options
 
 ```bash
@@ -98,6 +110,7 @@ audio-editor \
   [--transcript TEXT] \
   [--non-interactive] \
   [--disable-qa] \
+  [--disable-audio-content] \
   [--log-level {debug,info,warning,error}]
 ```
 
@@ -117,7 +130,8 @@ audio-editor --task "..." --input ... --log-level debug
 ## Requirements
 
 - Python 3.11+
-- Gemini API key
+- Gemini API key (or other supported model provider)
+- pydantic-ai >= 0.2.0 (for audio content support)
 - Dependencies listed in pyproject.toml
 
 ## License

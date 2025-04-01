@@ -11,7 +11,7 @@ import logfire
 from .models import (
     AudioPlan, AudioInput, ExecutionResult, ToolDefinition,
     CritiqueResult, QAResult, ErrorAnalysisResult,
-    UserFeedbackRequest, UserFeedbackResponse
+    UserFeedbackRequest, UserFeedbackResponse, AudioContent
 )
 
 
@@ -87,6 +87,10 @@ class PlannerDependencies(BaseModel):
     task_description: str = Field(description="Description of the audio processing task")
     tool_definitions: List[ToolDefinition] = Field(description="List of available tools")
     audio_input: AudioInput = Field(description="Audio input information")
+    audio_content: Optional[AudioContent] = Field(
+        default=None,
+        description="Audio content for direct model access"
+    )
     current_plan: Optional[AudioPlan] = Field(
         default=None,
         description="Current audio plan"
@@ -116,6 +120,7 @@ class ExecutorDependencies(BaseModel):
     plan: AudioPlan
     plan_step_index: int
     tool_definitions: List[ToolDefinition]
+    audio_content: Optional[AudioContent] = None
     execution_result: Optional[ExecutionResult] = None
     error_analysis: Optional[ErrorAnalysisResult] = None
     critique_result: Optional[CritiqueResult] = None
@@ -134,6 +139,7 @@ class CritiqueAgentDependencies(BaseModel):
     tool_definitions: List[ToolDefinition]
     plan: Optional[AudioPlan] = None
     plan_step_index: Optional[int] = None
+    audio_content: Optional[AudioContent] = None
     generated_code: Optional[str] = None
     critique_type: str = "plan"  # Either "plan" or "code"
     task_description: Optional[str] = None
@@ -152,6 +158,8 @@ class QAAgentDependencies(BaseModel):
     execution_result: ExecutionResult
     original_audio_path: Path
     processed_audio_path: Path
+    original_audio_content: Optional[AudioContent] = None
+    processed_audio_content: Optional[AudioContent] = None
     tool_definitions: List[ToolDefinition]
     
     model_config = ConfigDict(
