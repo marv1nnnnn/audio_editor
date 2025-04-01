@@ -20,6 +20,14 @@ from audio_editor import audio_tools
 from .mcp import MCPCodeExecutor
 from .user_feedback import ConsoleUserFeedbackHandler
 from .models import StepInfo, ExecutionResult, PlanResult, ProcessingResult, CodeGenerationResult, AudioContent
+from .prompts import (
+    DEFAULT_AUDIO_QUALITY_PROMPT,
+    DEFAULT_AUDIO_COMPARISON_PROMPT,
+    DEFAULT_MULTI_COMPARISON_PROMPT,
+    DEFAULT_AUDIO_GENERATION_PROMPT,
+    ITERATIVE_IMPROVEMENT_TEMPLATE,
+    FINAL_QUALITY_VERIFICATION_PROMPT
+)
 
 
 # Configure Logfire for debugging
@@ -45,6 +53,21 @@ class WorkflowState(BaseModel):
     original_audio: Path = ""
     tool_definitions: Dict[str, Dict[str, str]] = Field(default_factory=dict)
     current_markdown: str = ""
+
+
+# Enhance models for quality assessment
+class QualityAssessmentResult(BaseModel):
+    """Result of audio quality assessment."""
+    assessment: str
+    score: Optional[float] = None
+    recommendations: List[str] = Field(default_factory=list)
+    
+class AudioComparisonResult(BaseModel):
+    """Result of comparing audio files."""
+    comparison: str
+    improvements: List[str] = Field(default_factory=list)
+    issues: List[str] = Field(default_factory=list)
+    preferred_file: Optional[str] = None
 
 
 # Define the multi-agent system
@@ -75,13 +98,27 @@ planner_agent = Agent(
     You are a planning agent for audio processing. Your job is to:
     1. Create a detailed Product Requirements Document (PRD) based on the task
     2. Design a sequence of specific, achievable processing steps
+    3. Include quality validation steps after significant processing
+    4. Consider reference audio generation when it would help guide processing
 
     Each step must have:
     - A descriptive title
     - A unique ID (step_1, step_2, etc.)
     - A detailed description of what it should accomplish
     - Input and output paths
+    - Step type: "processing", "validation", or "reference"
 
+    For validation steps:
+    - Add these after significant processing operations
+    - Use "validation" as the step type
+    - The output path should match the input path (validation doesn't modify audio)
+    - Describe what specific aspects of quality to validate
+
+    For reference generation steps:
+    - Use "reference" as the step type
+    - Describe the characteristics the reference should have
+    - Name the output with a descriptive name like "professional_reference.wav"
+    
     Rules for file paths:
     1. The first step MUST use the EXACT input audio filename. **This filename is available in the dependencies object as `deps.original_audio.name`. Use this value directly.**
     2. Each subsequent step's input path MUST match the previous step's output path
@@ -96,13 +133,23 @@ planner_agent = Agent(
 
     * **ID:** `step_1`
     * **Description:** Remove low frequencies below 400 Hz to reduce rumble
+    * **Step Type:** `processing`
     * **Input Audio:** `sample1.wav`  # MUST match deps.original_audio.name
     * **Output Audio:** `highpass_filtered.wav`
 
-    ### Step 2: Normalize Volume
+    ### Step 2: Validate High-Pass Filter Results
 
     * **ID:** `step_2`
+    * **Description:** Analyze the frequency content to ensure rumble is removed without affecting vocal clarity
+    * **Step Type:** `validation`
+    * **Input Audio:** `highpass_filtered.wav`  # Match previous step's output
+    * **Output Audio:** `highpass_filtered.wav`  # Same as input for validation steps
+
+    ### Step 3: Normalize Volume
+
+    * **ID:** `step_3`
     * **Description:** Normalize the audio to broadcast standard
+    * **Step Type:** `processing`
     * **Input Audio:** `highpass_filtered.wav`  # Match previous step's output
     * **Output Audio:** `normalized_audio.wav`
     """
@@ -116,36 +163,45 @@ code_gen_agent = Agent(
     result_type=CodeGenerationResult,
     system_prompt="""
     You are a code generation agent for audio processing. Your job is to:
-    1. Generate a single line of Python code to implement a specific step
+    1. Generate Python code to implement a specific step in the audio processing workflow
     2. Use the correct tool from the available tool definitions
     3. Use the EXACT file paths from the step information
+    4. Generate different code based on the step type (processing, validation, or reference)
     
     Rules for code generation:
     1. Use ONLY the tools provided in the tool definitions
-    2. Each tool takes a wav_path input and returns an output path
+    2. Each tool takes a wav_path input and usually returns an output path
     3. ALWAYS use the EXACT input_audio path from the step info - do not modify or assume paths
     4. ALWAYS use the EXACT output_audio path from the step info - do not modify or assume paths
     5. Include any necessary parameters based on the tool's signature
-    6. Return exactly one line of executable Python code
-    7. Do not add any imports or other statements
-    8. Do not use variables - use string literals directly
-    9. ALWAYS use keyword arguments (e.g., wav_path="sample_1.wav") instead of positional arguments
-    10. NEVER assume or hardcode file paths - they must come from the step info
+    6. Return executable Python code - a single line for processing steps or multiple lines for analysis
+    7. Do not add any imports or other statements not needed for execution
+    8. ALWAYS use keyword arguments (e.g., wav_path="sample_1.wav") instead of positional arguments
+    9. NEVER assume or hardcode file paths - they must come from the step info
     
-    Example:
-    If the step info shows:
-    - Input Audio: `sample_1.wav`
-    - Output Audio: `normalized_audio.wav`
+    FOR DIFFERENT STEP TYPES:
     
-    And the tool is:
-    Tool: LOUDNESS_NORM
-    Signature: (wav_path: str, volume: float = -23.0, out_wav: str = None)
+    For "processing" steps:
+    - Return a single line of code using a processing function like LOUDNESS_NORM
+    - Example: LOUDNESS_NORM(wav_path="input.wav", volume=-20.0, out_wav="output.wav")
     
-    You would generate:
-    LOUDNESS_NORM(wav_path="sample_1.wav", volume=-20.0, out_wav="normalized_audio.wav")
+    For "validation" steps:
+    - Use AUDIO_QA to analyze the audio quality
+    - Provide a specific prompt relevant to the validation goal
+    - Example: AUDIO_QA(wav_path="processed.wav", task="Analyze the frequency balance and identify any issues in the low end")
     
-    NOT:
-    LOUDNESS_NORM(wav_path="input.wav", volume=-20.0, out_wav="output.wav")  # Don't assume paths
+    For "reference" steps:
+    - Use AUDIO_GENERATE to create reference audio
+    - Provide a detailed description based on the step requirements
+    - Example: AUDIO_GENERATE(text="Professional quality music with clear vocals and balanced frequency response", filename="reference.wav", audio_length_in_s=10.0)
+    
+    For comparison steps:
+    - Use AUDIO_DIFF to compare multiple audio files
+    - Provide specific comparison instructions
+    - Example: AUDIO_DIFF(wav_paths=["original.wav", "processed.wav"], task="Compare the original and processed files and identify improvements and remaining issues")
+    
+    The MCP executor will automatically handle placing the files in the correct audio directory.
+    You should NOT include the audio directory in the paths you generate.
     """
 )
 
@@ -177,10 +233,12 @@ def add_code_gen_context(ctx: RunContext[WorkflowState]) -> str:
             logfire.error(f"Error: No step information found for step_id {ctx.deps.current_step_id}") # Added logging
             return "Error: No step information found"
 
-        # --- START NEW CODE ---
         # Extract the exact path strings needed
         input_path_value = step_info.input_audio
         output_path_value = step_info.output_audio
+        
+        # Get the step type (default to "processing" for backward compatibility)
+        step_type = getattr(step_info, "step_type", "processing")
 
         if not input_path_value:
             logfire.error(f"Error: Input audio path missing in step info for {step_info.id}")
@@ -188,7 +246,6 @@ def add_code_gen_context(ctx: RunContext[WorkflowState]) -> str:
         if not output_path_value:
             logfire.error(f"Error: Output audio path missing in step info for {step_info.id}")
             return "Error: Output audio path missing in step info"
-        # --- END NEW CODE ---
 
         # Format tool definitions
         tool_defs = []
@@ -199,12 +256,46 @@ def add_code_gen_context(ctx: RunContext[WorkflowState]) -> str:
             tool_defs.append("")
 
         tools_str = "\n".join(tool_defs)
+        
+        # Add appropriate prompt suggestions for different step types
+        prompt_suggestion = ""
+        if step_type == "validation":
+            prompt_suggestion = f"""
+            For this validation step, consider using one of these prompt templates:
+            
+            Quality Analysis:
+            ```
+            {DEFAULT_AUDIO_QUALITY_PROMPT[:200]}...
+            ```
+            
+            Or for specific validation focused on step purpose:
+            "Analyze this audio and verify that {step_info.description}"
+            """
+        elif step_type == "reference":
+            prompt_suggestion = f"""
+            For this reference generation step, consider using this prompt template:
+            
+            ```
+            {DEFAULT_AUDIO_GENERATION_PROMPT[:200]}...
+            ```
+            
+            Or a more specific prompt based on the step requirements:
+            "Generate audio that {step_info.description}"
+            """
+        elif "compare" in step_info.description.lower() or "diff" in step_info.description.lower():
+            prompt_suggestion = f"""
+            For this comparison step, consider using this prompt template:
+            
+            ```
+            {DEFAULT_AUDIO_COMPARISON_PROMPT[:200]}...
+            ```
+            """
 
-        # --- MODIFIED RETURN STRING ---
         return f"""
-Current step information (for context only):
+Current step information:
 - ID: {step_info.id}
 - Description: {step_info.description}
+- Step Type: {step_type}
 - Input Audio: {step_info.input_audio}
 - Output Audio: {step_info.output_audio}
 
@@ -213,21 +304,18 @@ Available tools:
 
 Task description: {ctx.deps.task_description}
 
+{prompt_suggestion}
+
 CRITICAL INSTRUCTIONS FOR CODE GENERATION:
-1. You MUST generate exactly one line of Python code.
+1. You MUST generate code appropriate for a {step_type.upper()} step.
 2. The code MUST call one of the available tools.
 3. The code MUST use keyword arguments (e.g., wav_path="...").
 4. **Use the EXACT input file path: '{input_path_value}'** for the 'wav_path' argument (or the primary input argument if named differently).
 5. **Use the EXACT output file path: '{output_path_value}'** for the 'out_wav' argument (or the primary output argument if named differently).
 6. Include other necessary parameters based on the tool's signature and the step description.
-7. **DO NOT** use the literal string "original_audio.wav" unless the input path is actually 'original_audio.wav'. Use the value provided: '{input_path_value}'.
 
-Example: If the required input is 'input_file.wav' and output is 'output_file.wav' for LOUDNESS_NORM, generate:
-LOUDNESS_NORM(wav_path="input_file.wav", volume=-20.0, out_wav="output_file.wav")
-
-Now, generate the code for step {step_info.id} using input '{input_path_value}' and output '{output_path_value}'.
+Now, generate the code for step {step_info.id} ({step_type} step) using input '{input_path_value}' and output '{output_path_value}'.
 """
-        # --- END MODIFIED RETURN STRING ---
 
 # Tools for the coordinator agent
 @coordinator_agent.tool
@@ -768,6 +856,381 @@ async def finish_workflow(
         logfire.info(f"Workflow completed successfully. Final output: {final_output_path}")
 
 
+@coordinator_agent.tool
+async def assess_audio_quality(
+    ctx: RunContext[WorkflowState],
+    audio_path: str,
+    specific_question: Optional[str] = None
+) -> QualityAssessmentResult:
+    """Assess the quality of an audio file using AUDIO_QA."""
+    with logfire.span("assess_audio_quality"):
+        if not specific_question:
+            specific_question = "Analyze this audio for quality, balance, and professional sound. What issues need fixing?"
+            
+        # Get the full path to the audio file
+        full_audio_path = ctx.deps.workspace_dir / "audio" / audio_path
+        
+        if not full_audio_path.exists():
+            error_msg = f"Audio file not found: {full_audio_path}"
+            logfire.error(error_msg)
+            return QualityAssessmentResult(
+                assessment=f"Error: {error_msg}",
+                recommendations=["Ensure the audio file exists before assessment"]
+            )
+            
+        try:
+            # Call AUDIO_QA function
+            logfire.info(f"Assessing audio quality for {full_audio_path}")
+            assessment = audio_tools.AUDIO_QA(str(full_audio_path), specific_question)
+            
+            # Parse the assessment to extract recommendations
+            recommendations = []
+            for line in assessment.split('\n'):
+                if any(kw in line.lower() for kw in ['recommend', 'suggest', 'should', 'improve', 'enhance']):
+                    recommendations.append(line.strip())
+                    
+            # Add to workflow log
+            _append_workflow_log(ctx.deps.workflow_file, f"Assessed audio quality for {audio_path}")
+            
+            return QualityAssessmentResult(
+                assessment=assessment,
+                recommendations=recommendations[:5]  # Limit to top 5 recommendations
+            )
+        except Exception as e:
+            error_msg = f"Error assessing audio quality: {str(e)}"
+            logfire.error(error_msg)
+            return QualityAssessmentResult(
+                assessment=error_msg,
+                recommendations=["Try a different analysis approach"]
+            )
+
+@coordinator_agent.tool
+async def compare_audio_files(
+    ctx: RunContext[WorkflowState],
+    original_audio: str,
+    processed_audio: str,
+    comparison_focus: Optional[str] = None
+) -> AudioComparisonResult:
+    """Compare original and processed audio files using AUDIO_DIFF."""
+    with logfire.span("compare_audio_files"):
+        # Get the full paths to the audio files
+        original_path = ctx.deps.workspace_dir / "audio" / original_audio
+        processed_path = ctx.deps.workspace_dir / "audio" / processed_audio
+        
+        if not original_path.exists() or not processed_path.exists():
+            missing = []
+            if not original_path.exists():
+                missing.append(f"Original audio: {original_path}")
+            if not processed_path.exists():
+                missing.append(f"Processed audio: {processed_path}")
+                
+            error_msg = f"Audio file(s) not found: {', '.join(missing)}"
+            logfire.error(error_msg)
+            return AudioComparisonResult(
+                comparison=f"Error: {error_msg}",
+                improvements=[],
+                issues=["Missing audio files"]
+            )
+            
+        try:
+            # Create comparison focus if not provided
+            if not comparison_focus:
+                comparison_focus = """
+                Compare these audio files and analyze the differences:
+                1. What improvements were made in the processed file?
+                2. What issues were fixed?
+                3. What new issues might have been introduced?
+                4. Which file sounds better overall and why?
+                5. What should be the next processing step to further improve?
+                """
+                
+            # Call AUDIO_DIFF function
+            logfire.info(f"Comparing audio files: {original_path} and {processed_path}")
+            comparison = audio_tools.AUDIO_DIFF(
+                [str(original_path), str(processed_path)],
+                comparison_focus
+            )
+            
+            # Parse the comparison to extract improvements and issues
+            improvements = []
+            issues = []
+            preferred_file = None
+            
+            lines = comparison.split('\n')
+            for i, line in enumerate(lines):
+                # Detect improvements
+                if any(kw in line.lower() for kw in ['improve', 'better', 'enhanced', 'fixed']):
+                    improvements.append(line.strip())
+                # Detect issues
+                if any(kw in line.lower() for kw in ['issue', 'problem', 'worse', 'degraded']):
+                    issues.append(line.strip())
+                # Detect preferred file
+                if 'better' in line.lower() and ('file' in line.lower() or 'audio' in line.lower()):
+                    if 'original' in line.lower() or 'first' in line.lower():
+                        preferred_file = original_audio
+                    elif 'processed' in line.lower() or 'second' in line.lower():
+                        preferred_file = processed_audio
+            
+            # Add to workflow log
+            _append_workflow_log(ctx.deps.workflow_file, f"Compared audio files: {original_audio} vs {processed_audio}")
+            
+            return AudioComparisonResult(
+                comparison=comparison,
+                improvements=improvements[:3],  # Limit to top 3
+                issues=issues[:3],  # Limit to top 3
+                preferred_file=preferred_file
+            )
+        except Exception as e:
+            error_msg = f"Error comparing audio files: {str(e)}"
+            logfire.error(error_msg)
+            return AudioComparisonResult(
+                comparison=error_msg,
+                improvements=[],
+                issues=["Error during comparison"]
+            )
+
+@coordinator_agent.tool
+async def generate_audio_example(
+    ctx: RunContext[WorkflowState],
+    description: str,
+    output_filename: str,
+    duration: float = 5.0
+) -> str:
+    """Generate an audio example based on a text description."""
+    with logfire.span("generate_audio_example"):
+        # Ensure output filename has .wav extension
+        if not output_filename.lower().endswith(".wav"):
+            output_filename += ".wav"
+            
+        # Get the full path for the output file
+        output_path = ctx.deps.workspace_dir / "audio" / output_filename
+        
+        try:
+            # Call AUDIO_GENERATE function
+            logfire.info(f"Generating audio example: {description}")
+            result_path = audio_tools.AUDIO_GENERATE(
+                description,
+                str(output_path),
+                audio_length_in_s=duration
+            )
+            
+            # Add to workflow log
+            _append_workflow_log(
+                ctx.deps.workflow_file,
+                f"Generated audio example: '{description}' -> {output_filename}"
+            )
+            
+            return output_filename
+        except Exception as e:
+            error_msg = f"Error generating audio example: {str(e)}"
+            logfire.error(error_msg)
+            return f"Error: {error_msg}"
+
+# Enhance the execute_code_for_step to include quality assessment
+@coordinator_agent.tool
+async def execute_code_for_step_with_validation(
+    ctx: RunContext[WorkflowState],
+    step_id: str,
+    code: str,
+    validate_output: bool = True
+) -> ExecutionResult:
+    """Execute the code for a specific step and validate the output quality."""
+    with logfire.span("execute_code_for_step_with_validation", step_id=step_id):
+        # Get the original execution result
+        execution_result = await execute_code_for_step(ctx, step_id, code)
+        
+        # If execution failed or validation not requested, return the result
+        if execution_result.status != "SUCCESS" or not validate_output:
+            return execution_result
+            
+        # Get step info to access input/output paths
+        step_info = _get_step_info(ctx.deps.workflow_file, step_id)
+        if not step_info or not step_info.output_audio:
+            logfire.warning(f"Cannot validate output: Missing step info or output path for step {step_id}")
+            return execution_result
+            
+        try:
+            # Assess the quality of the output audio
+            logfire.info(f"Validating output quality for step {step_id}")
+            assessment_result = await assess_audio_quality(ctx, step_info.output_audio)
+            
+            # If this isn't the first step, compare with input
+            comparison_result = None
+            if step_info.input_audio != ctx.deps.original_audio.name:
+                logfire.info(f"Comparing input and output for step {step_id}")
+                comparison_result = await compare_audio_files(
+                    ctx,
+                    step_info.input_audio,
+                    step_info.output_audio
+                )
+                
+            # Update the step with the validation results
+            validation_text = f"Quality Assessment:\n{assessment_result.assessment}\n\n"
+            if comparison_result:
+                validation_text += f"Comparison with Input:\n{comparison_result.comparison}\n\n"
+                
+            # Add recommendations if any
+            if assessment_result.recommendations:
+                validation_text += "Recommendations:\n"
+                for rec in assessment_result.recommendations:
+                    validation_text += f"- {rec}\n"
+                    
+            # Update the step in the workflow markdown
+            _update_step_fields(
+                ctx.deps.workflow_file,
+                step_id,
+                {"Quality Validation": "DONE"},
+                execution_results=f"{execution_result.output}\n\n--- Validation Results ---\n{validation_text}"
+            )
+            
+            # Add to workflow log
+            _append_workflow_log(
+                ctx.deps.workflow_file,
+                f"Validated output quality for step {step_id}"
+            )
+            
+            # If issues detected, consider suggesting improvements
+            if assessment_result.recommendations or (comparison_result and comparison_result.issues):
+                logfire.info(f"Quality issues detected in step {step_id}, suggesting improvements")
+                
+            # Return the original execution result
+            return execution_result
+        except Exception as e:
+            logfire.error(f"Error during quality validation: {str(e)}")
+            return execution_result
+
+# Update planner agent to include quality validation steps
+@planner_agent.system_prompt
+def add_quality_validation_guidance(ctx: RunContext[WorkflowState]) -> str:
+    """Add guidance for including quality validation steps in the plan."""
+    return """
+    For more effective audio processing, consider including these types of steps in your plan:
+    
+    1. Quality Assessment Steps: After significant processing operations, add a step to check audio quality
+    2. Comparison Steps: Compare before/after for important changes to ensure improvements
+    3. Reference Generation: When appropriate, generate reference audio for comparison
+    
+    Example quality assessment step:
+    ### Step 4: Validate Processing Quality
+    
+    * **ID:** `step_4`
+    * **Description:** Analyze the processed audio to verify quality and identify any issues
+    * **Input Audio:** `previous_step_output.wav`
+    * **Output Audio:** `same_as_input.wav`  # Quality check doesn't modify the file
+    
+    These validation steps help ensure the audio quality meets requirements at each stage.
+    """
+
+# Enhance the main processing function
+async def process_audio_with_validation(
+    ctx: RunContext[WorkflowState],
+    final_validation: bool = True
+) -> ProcessingResult:
+    """Process the audio with quality validation at key points."""
+    with logfire.span("process_audio_with_validation"):
+        # Generate the plan
+        plan_result = await generate_plan_and_prd(ctx)
+        
+        # Track completed steps
+        completed_steps = 0
+        
+        # Process each step
+        while True:
+            # Find the next step to process
+            next_step_id = await find_next_step(ctx)
+            if not next_step_id:
+                # No more steps to process
+                break
+                
+            # Generate code for the step
+            ctx.deps.current_step_id = next_step_id
+            generated_code = await generate_code_for_step(ctx, next_step_id)
+            
+            # Execute the code with validation
+            try:
+                result = await execute_code_for_step_with_validation(ctx, next_step_id, generated_code)
+                if result.status == "SUCCESS":
+                    completed_steps += 1
+            except ModelRetry:
+                # Retry will be handled by the coordinator agent
+                continue
+                
+        # Get the final output path
+        final_output_path = await get_final_output_path(ctx)
+        
+        # Perform comprehensive final validation if requested
+        if final_validation and final_output_path:
+            # Compare original and final output
+            logfire.info("Performing final quality validation")
+            
+            # Get original audio name
+            original_audio_name = ctx.deps.original_audio.name
+            
+            # Assess final output quality
+            final_assessment = await assess_audio_quality(
+                ctx, 
+                final_output_path,
+                "Evaluate the final processed audio. Does it meet professional standards? What are its strengths and weaknesses?"
+            )
+            
+            # Compare with original
+            final_comparison = await compare_audio_files(
+                ctx,
+                original_audio_name,
+                final_output_path,
+                "Compare the original and final processed audio. What specific improvements were made? Are there any remaining issues?"
+            )
+            
+            # Update final output section with assessment
+            _update_workflow_section(
+                ctx.deps.workflow_file,
+                "Final Output",
+                {
+                    "Quality Assessment": "DONE",
+                    "Comparison with Original": "DONE"
+                }
+            )
+            
+            # Add detailed assessment to the workflow
+            final_validation_section = f"""
+## 6. Final Quality Assessment
+
+### Audio Quality Analysis
+{final_assessment.assessment}
+
+### Comparison with Original
+{final_comparison.comparison}
+
+### Key Improvements
+{chr(10).join([f"* {item}" for item in final_comparison.improvements])}
+
+### Remaining Issues
+{chr(10).join([f"* {item}" for item in final_comparison.issues])}
+
+### Overall Verdict
+The final processed audio is {"better than" if final_comparison.preferred_file == final_output_path else "not clearly better than"} the original.
+"""
+            
+            # Add the validation section to the workflow file
+            markdown_content = _read_markdown_file(ctx.deps.workflow_file)
+            if "## 6. Final Quality Assessment" not in markdown_content:
+                _write_markdown_file(ctx.deps.workflow_file, markdown_content + final_validation_section)
+            
+            # Add to workflow log
+            _append_workflow_log(
+                ctx.deps.workflow_file,
+                f"Completed final quality validation. {'Improvements detected.' if final_comparison.preferred_file == final_output_path else 'Mixed results.'}"
+            )
+        
+        # Finish the workflow
+        await finish_workflow(ctx, final_output_path, completed_steps)
+        
+        return ProcessingResult(
+            success=True,
+            output_path=final_output_path,
+            steps_completed=completed_steps
+        )
+
 
 # Helper functions for Markdown manipulation
 def _read_markdown_file(markdown_file: str) -> str:
@@ -1188,7 +1651,8 @@ class AudioProcessingCoordinator:
         self, 
         task_description: str, 
         input_audio_path: str, 
-        transcript: str = ""
+        transcript: str = "",
+        validate_quality: bool = True  # Add this parameter
     ) -> str:
         """
         Run the audio processing workflow.
@@ -1197,6 +1661,7 @@ class AudioProcessingCoordinator:
             task_description: Description of the processing task
             input_audio_path: Path to the input audio file
             transcript: Transcript of the audio (if available)
+            validate_quality: Whether to perform quality validation
             
         Returns:
             Path to the output audio file
@@ -1209,12 +1674,13 @@ class AudioProcessingCoordinator:
         # Create workflow markdown file
         workflow_file = self.docs_dir / f"{workflow_id}.md"
         
-        # Copy the input audio to the workspace
+        # Copy the input audio to the workspace audio directory
         input_audio = Path(input_audio_path)
         workspace_input_audio = self.audio_dir / input_audio.name
         
         import shutil
         shutil.copy(input_audio, workspace_input_audio)
+        logfire.info(f"Copied input audio to workspace: {workspace_input_audio}")
         
         # Initialize the workflow file
         _create_workflow_file(
@@ -1244,30 +1710,53 @@ class AudioProcessingCoordinator:
         
         # Run the coordinator agent
         try:
-            # Use the updated coordinator_agent with RunContext
-            result = await coordinator_agent.run(
-                f"""
-                Process the audio file according to the task:
-                "{task_description}"
-                
-                The audio file is located at: {workspace_input_audio}
-                
-                Follow these steps:
-                1. Generate a plan using the Planner Agent
-                2. For each step in the plan:
-                   a. Generate code to execute the step
-                   b. Execute the code to process the audio
-                3. Return the final processed audio file
-                """,
-                deps=deps
-            )
+            # Use the updated coordinator_agent with RunContext and process_audio_with_validation
+            if validate_quality:
+                # Use enhanced processing with validation
+                result = await coordinator_agent.run(
+                    f"""
+                    Process the audio file according to the task:
+                    "{task_description}"
+                    
+                    The audio file is located at: {workspace_input_audio}
+                    
+                    Follow these steps:
+                    1. Generate a plan using the Planner Agent
+                    2. For each step in the plan:
+                       a. Generate code to execute the step
+                       b. Execute the code to process the audio
+                       c. Validate the quality of the processed audio
+                    3. Perform final quality assessment
+                    4. Return the final processed audio file
+                    """,
+                    deps=deps,
+                    tools=[process_audio_with_validation]
+                )
+            else:
+                # Use original processing without validation
+                result = await coordinator_agent.run(
+                    f"""
+                    Process the audio file according to the task:
+                    "{task_description}"
+                    
+                    The audio file is located at: {workspace_input_audio}
+                    
+                    Follow these steps:
+                    1. Generate a plan using the Planner Agent
+                    2. For each step in the plan:
+                       a. Generate code to execute the step
+                       b. Execute the code to process the audio
+                    3. Return the final processed audio file
+                    """,
+                    deps=deps
+                )
             
             # Handle the result (might be an AgentRunResult or a string)
             if hasattr(result, 'data') and isinstance(result.data, ProcessingResult):
                 # Get the path from the ProcessingResult
                 final_output_path = result.data.output_path
                 logfire.info(f"Processing completed successfully: {final_output_path}")
-                return self.working_dir / final_output_path
+                return final_output_path
             else:
                 # If it's a string or another type, try to extract the path
                 if isinstance(result, str):
@@ -1277,7 +1766,7 @@ class AudioProcessingCoordinator:
                     path_match = re.search(r'(?:output|final|result).*?(?:path|file).*?[\'"]([^\'"]+)[\'"]', result, re.IGNORECASE)
                     if path_match:
                         path = path_match.group(1)
-                        return self.working_dir / path
+                        return os.path.join(self.working_dir, 'audio', path)
                 
                 # Fallback: Look for the most recently modified audio file in the workspace
                 audio_files = list(self.audio_dir.glob("*.wav"))
@@ -1289,7 +1778,6 @@ class AudioProcessingCoordinator:
                 # If all else fails, return the input audio
                 logfire.error("Failed to determine output path, returning input audio")
                 return workspace_input_audio
-        
         except Exception as e:
             logfire.error(f"Error running coordinator agent: {e}", exc_info=True)
             raise 

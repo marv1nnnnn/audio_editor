@@ -20,11 +20,12 @@ class StepStatus(str, Enum):
 
 class PlanStep(BaseModel):
     """A step in the audio processing plan."""
+    id: str
+    title: str
     description: str
-    status: StepStatus = StepStatus.PENDING
-    code: Optional[str] = None
-    tool_name: str
-    tool_args: str = Field(default="{}")  # Store as JSON string
+    input_audio: str
+    output_audio: str
+    step_type: str = Field(default="processing", description="Type of step: processing, validation, reference")
     
     model_config = ConfigDict(
         extra='forbid',
@@ -50,11 +51,11 @@ class AudioPlan(BaseModel):
 class ExecutionResult(BaseModel):
     """Result of executing a step in the plan."""
     status: str
-    output: str = ""
-    error_message: str = ""
+    output: Optional[str] = None
     output_path: Optional[str] = None
-    output_paths: Optional[List[str]] = None
+    error_message: Optional[str] = None
     duration: float = 0.0
+    quality_validation: Optional[str] = None
     
     model_config = ConfigDict(
         extra='forbid',
@@ -74,12 +75,11 @@ class AudioInput(BaseModel):
 
 
 class AudioContent(BaseModel):
-    """Representation of actual audio content for direct model access."""
-    file_path: Path = Field(..., description="Path to the audio file")
-    content: Optional[Union[AudioUrl, BinaryContent]] = Field(
-        default=None, 
-        description="Audio content for direct model access"
-    )
+    """Audio content for sending to the model."""
+    file_path: Path
+    content: Optional[BinaryContent] = None
+    duration_seconds: Optional[float] = None
+    sample_rate: Optional[int] = None
     
     model_config = ConfigDict(
         extra='forbid',
@@ -173,33 +173,37 @@ class UserFeedbackResponse(BaseModel):
 
 class StepInfo(BaseModel):
     """Information about a processing step."""
-    id: str = Field(..., description="Unique identifier for the step (e.g., step_1)")
-    title: str = Field(..., description="Brief title for the step")
-    description: str = Field(..., description="Detailed description of what the step should accomplish")
-    status: str = Field(default="PENDING", description="Current status of the step")
-    input_audio: str = Field(..., description="Path to input audio file or variable reference")
-    output_audio: str = Field(..., description="Path where output audio will be saved")
-    code: Optional[str] = Field(default=None, description="Generated Python code for the step")
-    execution_results: Optional[str] = Field(default=None, description="Results from executing the step")
-    timestamp_start: Optional[str] = Field(default=None, description="When step execution started")
-    timestamp_end: Optional[str] = Field(default=None, description="When step execution finished/failed")
+    id: str
+    title: str
+    description: str
+    status: str
+    input_audio: str
+    output_audio: str
+    code: Optional[str] = None
+    execution_results: Optional[str] = None
+    step_type: str = Field(default="processing", description="Type of step: processing, validation, reference")
+    quality_validation: Optional[str] = None
 
 
 class PlanResult(BaseModel):
-    """Result from the planner agent."""
-    prd: str = Field(..., description="The Product Requirements Document")
-    steps: List[StepInfo] = Field(..., description="The list of processing steps")
+    """Result of the planning process."""
+    prd: str
+    steps: List[PlanStep]
+    quality_checkpoints: List[str] = Field(default_factory=list, description="Points where quality validation should occur")
+    reference_audio: Optional[str] = None
 
 
 class CodeGenerationResult(BaseModel):
-    """Result from the code generation agent."""
-    code: str = Field(..., description="Generated Python code for the step")
-    explanation: Optional[str] = Field(default=None, description="Explanation of the generated code")
+    """Result of code generation for a step."""
+    code: str
+    explanation: Optional[str] = None
+    references: List[str] = Field(default_factory=list)
 
 
 class ProcessingResult(BaseModel):
-    """Final result of the audio processing."""
-    output_path: str = Field(..., description="Path to the final processed audio")
-    status: str = Field(..., description="Overall processing status")
-    steps_completed: int = Field(..., description="Number of completed steps")
-    qa_result: Optional[QAResult] = Field(default=None, description="Results of quality assessment") 
+    """Result of the audio processing workflow."""
+    success: bool
+    output_path: str
+    steps_completed: int
+    quality_assessment: Optional[str] = None
+    improvement_summary: Optional[str] = None 
