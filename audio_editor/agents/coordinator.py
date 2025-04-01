@@ -11,8 +11,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 import json
 import inspect
+
+from networkx import spanner
 import logfire
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from pydantic_ai import Agent, RunContext, ModelRetry, BinaryContent
 from pydantic_ai.usage import Usage, UsageLimits
 
@@ -53,6 +55,15 @@ class WorkflowState(BaseModel):
     original_audio: Path = ""
     tool_definitions: Dict[str, Dict[str, str]] = Field(default_factory=dict)
     current_markdown: str = ""
+    audio_content: Optional[AudioContent] = None  # Add audio content field
+    current_critique: Optional[str] = None  # Add current critique field
+    max_retries: int = Field(default=3, description="Maximum number of retries per step")
+    retry_counts: Dict[str, int] = Field(default_factory=dict, description="Retry counts per step")
+    
+    model_config = ConfigDict(
+        extra='forbid',  # Disable additional properties for Gemini compatibility
+        arbitrary_types_allowed=True  # Allow Path and AudioContent types
+    )
 
 
 # Enhance models for quality assessment
@@ -62,7 +73,7 @@ class QualityAssessmentResult(BaseModel):
     score: Optional[float] = None
     recommendations: List[str] = Field(default_factory=list)
     
-class AudioComparisonResult(BaseModel):
+class iComparisonResult(BaseModel):
     """Result of comparing audio files."""
     comparison: str
     improvements: List[str] = Field(default_factory=list)
@@ -540,7 +551,7 @@ async def generate_code_for_step(
             return error_msg
         
         # Load audio content for direct model access
-        input_audio_path = ctx.deps.workspace_dir / step_info.input_audio
+        input_audio_path = ctx.deps.workspace_dir / "audio" / step_info.input_audio
         audio_content = _load_audio_content(input_audio_path)
         
         # Update context with current step
@@ -600,10 +611,14 @@ async def generate_code_for_step(
 async def execute_code_for_step(
     ctx: RunContext[WorkflowState],
     step_id: str,
-    code: str
+    code: str,
+    retry_count: int = 0
 ) -> ExecutionResult:
     """Execute the code for a specific step."""
     with logfire.span("execute_code_for_step", step_id=step_id):
+        # Get current retry count from state
+        current_retry_count = ctx.deps.retry_counts.get(step_id, 0)
+        
         # Update step status to EXECUTING
         _update_step_fields(ctx.deps.workflow_file, step_id, {"Status": "EXECUTING"})
         _append_workflow_log(ctx.deps.workflow_file, f"Executing code for step {step_id}...")
@@ -613,7 +628,7 @@ async def execute_code_for_step(
         
         # Execute the code
         try:
-            logfire.info(f"Executing code: {code}")
+            logfire.info(f"Executing code (attempt {current_retry_count + 1}): {code}")
             result = await mcp.execute_code(code, f"Step {step_id} execution")
             
             if result.status == "SUCCESS":
@@ -644,15 +659,23 @@ async def execute_code_for_step(
                 )
                 _append_workflow_log(ctx.deps.workflow_file, f"Step {step_id} failed: {result.error_message}")
                 
-                # Try to analyze and fix the error
-                fixed = await analyze_and_fix_error(ctx, step_id, code, result.error_message)
-                if fixed:
-                    # Reset the step to READY
-                    _update_step_fields(ctx.deps.workflow_file, step_id, {"Status": "READY"})
-                    _append_workflow_log(ctx.deps.workflow_file, f"Fixed error in step {step_id}. Retrying...")
-                    
-                    # Raise ModelRetry to let the agent know it should retry
-                    raise ModelRetry(f"Fixed error in step {step_id}. Retrying...")
+                # Try to analyze and fix the error if we haven't exceeded retry limit
+                if current_retry_count < ctx.deps.max_retries:
+                    fixed = await analyze_and_fix_error(ctx, step_id, code, result.error_message)
+                    if fixed:
+                        # Reset the step to READY
+                        _update_step_fields(ctx.deps.workflow_file, step_id, {"Status": "READY"})
+                        _append_workflow_log(ctx.deps.workflow_file, f"Fixed error in step {step_id}. Retrying...")
+                        
+                        # Update retry count in state
+                        ctx.deps.retry_counts[step_id] = current_retry_count + 1
+                        
+                        # Raise ModelRetry with retry count
+                        raise ModelRetry(
+                            f"Fixed error in step {step_id}. Retrying... (attempt {current_retry_count + 1}/{ctx.deps.max_retries})"
+                        )
+                else:
+                    _append_workflow_log(ctx.deps.workflow_file, f"Step {step_id} failed after {current_retry_count} retries")
             
             return result
         except ModelRetry:
@@ -704,10 +727,15 @@ async def analyze_and_fix_error(
             The code is typically a single line calling an audio processing function.
             Focus on fixing parameter types, file paths, and function names.
             
-            IMPORTANT: When fixing file paths:
-            1. Use the exact input file path from the step info
-            2. Do not modify or assume paths
-            3. Keep the output path as specified
+            IMPORTANT: 
+            1. Return ONLY the fixed code, without any explanation or formatting
+            2. All function names are UPPERCASE with underscores (e.g., APPLY_FILTER)
+            3. DO NOT include any newlines, prefixes, or other characters before the function name
+            4. DO NOT add "n" or any other character before the function name
+            5. The code must start with an uppercase letter (the function name)
+            
+            VALID example: APPLY_FILTER(wav_path="input.wav", out_wav="output.wav")
+            INVALID example: n APPLY_FILTER(wav_path="input.wav", out_wav="output.wav")
             """
         )
         
@@ -740,6 +768,9 @@ async def analyze_and_fix_error(
         
         Return ONLY the fixed code, without any explanation or formatting.
         Make sure to use the exact input file path: {step_info.input_audio}
+        
+        REMINDER: DO NOT add any characters or newlines before the function name.
+        The function name should be the first thing in your response and should be in UPPERCASE.
         """
         
         try:
@@ -760,6 +791,23 @@ async def analyze_and_fix_error(
             if fixed_code.endswith('```'):
                 fixed_code = fixed_code[:-3]
             fixed_code = fixed_code.strip()
+            
+            # NEW: Clean any invalid prefixes before function name
+            # Look for the first uppercase letter (start of function name)
+            import re
+            function_name_match = re.search(r'([A-Z][A-Z_]+)', fixed_code)
+            if function_name_match:
+                function_name = function_name_match.group(1)
+                function_start = fixed_code.find(function_name)
+                if function_start > 0:
+                    # There's content before the function name - remove it
+                    logfire.warning(f"Removing invalid prefix: '{fixed_code[:function_start]}'")
+                    fixed_code = fixed_code[function_start:]
+            
+            # Verify the fixed code starts with an uppercase letter (function name)
+            if fixed_code and not fixed_code[0].isupper():
+                logfire.warning(f"Fixed code does not start with function name: {fixed_code}")
+                return False
             
             if fixed_code != code:
                 logfire.info(f"Generated fixed code: {fixed_code}")
@@ -1659,9 +1707,10 @@ class AudioProcessingCoordinator:
                        c. Validate the quality of the processed audio
                     3. Perform final quality assessment
                     4. Return the final processed audio file
+                    
+                    Use process_audio_with_validation to handle the workflow with quality validation.
                     """,
-                    deps=deps,
-                    tools=[process_audio_with_validation]
+                    deps=deps
                 )
             else:
                 # Use original processing without validation

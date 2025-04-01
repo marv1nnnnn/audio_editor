@@ -28,8 +28,7 @@ class PlanStep(BaseModel):
     step_type: str = Field(default="processing", description="Type of step: processing, validation, reference")
     
     model_config = ConfigDict(
-        extra='forbid',
-        json_schema_extra={"additionalProperties": True}  # Allow additional properties for Gemini
+        extra='forbid'  # Disable additional properties for Gemini compatibility
     )
 
 
@@ -43,8 +42,7 @@ class AudioPlan(BaseModel):
     checkpoint_indices: List[int] = Field(default_factory=list)
 
     model_config = ConfigDict(
-        extra='forbid',
-        json_schema_extra={"additionalProperties": True}  # Allow additional properties for Gemini
+        extra='forbid'  # Disable additional properties for Gemini compatibility
     )
 
 
@@ -58,8 +56,7 @@ class ExecutionResult(BaseModel):
     quality_validation: Optional[str] = None
     
     model_config = ConfigDict(
-        extra='forbid',
-        json_schema_extra={"additionalProperties": True}  # Allow additional properties for Gemini
+        extra='forbid'  # Disable additional properties for Gemini compatibility
     )
 
 
@@ -69,8 +66,7 @@ class AudioInput(BaseModel):
     timestamp: float
     
     model_config = ConfigDict(
-        extra='forbid',
-        json_schema_extra={"additionalProperties": True}  # Allow additional properties for Gemini
+        extra='forbid'  # Disable additional properties for Gemini compatibility
     )
 
 
@@ -83,8 +79,7 @@ class AudioContent(BaseModel):
     
     model_config = ConfigDict(
         extra='forbid',
-        arbitrary_types_allowed=True,  # Allow AudioUrl and BinaryContent types
-        json_schema_extra={"additionalProperties": True}  # Allow additional properties for Gemini
+        arbitrary_types_allowed=True  # Allow AudioUrl and BinaryContent types
     )
 
 
@@ -96,8 +91,7 @@ class ToolDefinition(BaseModel):
     docstring: str = Field(description="Full documentation of the tool")
     
     model_config = ConfigDict(
-        extra='forbid',
-        json_schema_extra={"additionalProperties": True}  # Allow additional properties for Gemini
+        extra='forbid'  # Disable additional properties for Gemini compatibility
     )
 
 
@@ -109,8 +103,7 @@ class ExecutorOutput(BaseModel):
     retry_count: int = 0
     
     model_config = ConfigDict(
-        extra='forbid',
-        json_schema_extra={"additionalProperties": True}  # Allow additional properties for Gemini
+        extra='forbid'  # Disable additional properties for Gemini compatibility
     )
 
 
@@ -124,8 +117,11 @@ class CritiqueResult(BaseModel):
     reasoning: str
     critique_type: str
 
+    model_config = ConfigDict(
+        extra='forbid'  # Disable additional properties for Gemini compatibility
+    )
 
-# Define a specific class for metrics to avoid using Dict with additionalProperties
+
 class QAMetrics(BaseModel):
     """Metrics for quality assessment."""
     clarity_score: Optional[float] = None
@@ -136,6 +132,10 @@ class QAMetrics(BaseModel):
     bit_depth: Optional[int] = None
     file_size_kb: Optional[int] = None
 
+    model_config = ConfigDict(
+        extra='forbid'  # Disable additional properties for Gemini compatibility
+    )
+
 
 class QAResult(BaseModel):
     """Result of QA verification of execution output."""
@@ -144,6 +144,10 @@ class QAResult(BaseModel):
     suggestions: List[str] = []
     metrics: QAMetrics = Field(default_factory=QAMetrics)  # Use the dedicated metrics class
     reasoning: str
+
+    model_config = ConfigDict(
+        extra='forbid'  # Disable additional properties for Gemini compatibility
+    )
 
 
 class ErrorAnalysisResult(BaseModel):
@@ -155,6 +159,10 @@ class ErrorAnalysisResult(BaseModel):
     requires_replanning: bool = False
     confidence: float
 
+    model_config = ConfigDict(
+        extra='forbid'  # Disable additional properties for Gemini compatibility
+    )
+
 
 class UserFeedbackRequest(BaseModel):
     """Request for feedback from the user."""
@@ -164,11 +172,19 @@ class UserFeedbackRequest(BaseModel):
     severity: str = "info"
     request_type: str
 
+    model_config = ConfigDict(
+        extra='forbid'  # Disable additional properties for Gemini compatibility
+    )
+
 
 class UserFeedbackResponse(BaseModel):
     """Response from the user to a feedback request."""
     response: str
     timestamp: float
+
+    model_config = ConfigDict(
+        extra='forbid'  # Disable additional properties for Gemini compatibility
+    )
 
 
 class StepInfo(BaseModel):
@@ -184,6 +200,10 @@ class StepInfo(BaseModel):
     step_type: str = Field(default="processing", description="Type of step: processing, validation, reference")
     quality_validation: Optional[str] = None
 
+    model_config = ConfigDict(
+        extra='forbid'  # Disable additional properties for Gemini compatibility
+    )
+
 
 class PlanResult(BaseModel):
     """Result of the planning process."""
@@ -192,12 +212,20 @@ class PlanResult(BaseModel):
     quality_checkpoints: List[str] = Field(default_factory=list, description="Points where quality validation should occur")
     reference_audio: Optional[str] = None
 
+    model_config = ConfigDict(
+        extra='forbid'  # Disable additional properties for Gemini compatibility
+    )
+
 
 class CodeGenerationResult(BaseModel):
     """Result of code generation for a step."""
     code: str
     explanation: Optional[str] = None
     references: List[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(
+        extra='forbid'  # Disable additional properties for Gemini compatibility
+    )
 
 
 class ProcessingResult(BaseModel):
@@ -206,4 +234,8 @@ class ProcessingResult(BaseModel):
     output_path: str
     steps_completed: int
     quality_assessment: Optional[str] = None
-    improvement_summary: Optional[str] = None 
+    improvement_summary: Optional[str] = None
+
+    model_config = ConfigDict(
+        extra='forbid'  # Disable additional properties for Gemini compatibility
+    ) 

@@ -112,8 +112,39 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 - When logging LLM requests, always wrap model_dump_json() calls in try-except blocks to handle serialization errors gracefully
 - When handling LLM results, check for both string and AgentRunResult types and handle markdown code blocks in the output
 - When implementing audio processing tools as agent tools, use structured types (Pydantic models) for context and results to ensure proper file path handling and type safety
+- AudioLDM model requires the transformers library to be installed in the environment - install with `pip install transformers`
+- When using AudioLDM for audio generation, use torch.float32 dtype to avoid tensor dtype mismatches with the UNet model
 
 # Scratchpad
+
+## Audio Processing Workflow Debug - 20250401_155619_85fb4a30
+
+Task: Fix workflow state error in the multi-agent audio processing system.
+
+Error Analysis:
+- Error: "WorkflowState" object has no field "current_critique"
+- Location: Coordinator agent execution
+- Context: After fixing AudioLDM dtype issue
+- Type: Pydantic model validation error
+
+Plan:
+[X] Search for WorkflowState model definition
+[X] Check coordinator agent code for critique handling
+[X] Add missing field to WorkflowState model
+[ ] Test the workflow again
+
+Progress:
+- Previous fix for AudioLDM dtype issue implemented
+- Found WorkflowState model in coordinator.py
+- Added current_critique field to WorkflowState model
+- Ready to test the complete workflow
+
+Next Steps:
+1. Test the workflow to ensure both fixes work:
+   - AudioLDM dtype fix
+   - WorkflowState current_critique field
+2. Monitor for any other state-related issues
+3. Consider adding validation for other potential missing fields
 
 ## Multi-Agent Audio Processing System Refactoring
 

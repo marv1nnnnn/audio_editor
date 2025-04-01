@@ -6,7 +6,7 @@ from audiomentations import (
     AddGaussianNoise, TimeStretch, PitchShift, Shift,
     LowPassFilter, HighPassFilter, BandPassFilter, Normalize,
     RoomSimulator, PolarityInversion, ClippingDistortion,
-    AddColorNoise, Mp3Compression, Trim
+    AddColorNoise, Trim
 )
 
 from .config import SAMPLE_RATE
@@ -221,22 +221,6 @@ def ADD_COLOR_NOISE(wav_path: str, min_snr_in_db: float = 3.0, max_snr_in_db: fl
     return _apply_effect(AddColorNoise, wav_path, out_wav, sr, 
                          min_snr_in_db=min_snr_in_db, max_snr_in_db=max_snr_in_db, 
                          noise_colors=[noise_color])
-
-def APPLY_MP3_COMPRESSION(wav_path: str, min_bitrate: int = 32, max_bitrate: int = 128, backend: str = "lameenc", out_wav: str = None, sr: int = SAMPLE_RATE) -> str:
-    """Apply MP3 compression artifacts.
-    
-    Args:
-        wav_path (str): Path to input audio file.
-        min_bitrate (int, optional): Minimum bitrate in kbps. Defaults to 32.
-        max_bitrate (int, optional): Maximum bitrate in kbps. Defaults to 128.
-        backend (str, optional): Backend to use. Defaults to "lameenc".
-        out_wav (str, optional): Path to output file. Defaults to auto-generated.
-        sr (int, optional): Sample rate. Defaults to SAMPLE_RATE.
-        
-    Returns:
-        str: Path to output compressed WAV file.
-    """
-    return _apply_effect(Mp3Compression, wav_path, out_wav, sr, min_bitrate=min_bitrate, max_bitrate=max_bitrate, backend=backend)
 
 def TRIM_SILENCE(wav_path: str, top_db: float = 20.0, out_wav: str = None, sr: int = SAMPLE_RATE) -> str:
     """Trim leading/trailing silence.

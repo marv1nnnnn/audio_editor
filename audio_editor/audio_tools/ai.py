@@ -151,7 +151,7 @@ def AUDIO_GENERATE(text: str, filename: str, audio_length_in_s: float = 5.0, gui
         try:
             _audio_gen_pipe = diffusers.AudioLDMPipeline.from_pretrained(
                 "cvssp/audioldm-s-full-v2", 
-                torch_dtype=torch.float16
+                torch_dtype=torch.float32  # Use float32 for consistent dtype
             )
             _audio_gen_pipe = _audio_gen_pipe.to("cuda" if torch.cuda.is_available() else "cpu")
         except Exception as e:
