@@ -114,6 +114,7 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 - When implementing audio processing tools as agent tools, use structured types (Pydantic models) for context and results to ensure proper file path handling and type safety
 - AudioLDM model requires the transformers library to be installed in the environment - install with `pip install transformers`
 - When using AudioLDM for audio generation, use torch.float32 dtype to avoid tensor dtype mismatches with the UNet model
+- In the MCP code executor, use a non_path_params list to exclude function parameters that shouldn't be treated as file paths (like 'noise_color', 'aligned', etc.)
 
 # Scratchpad
 

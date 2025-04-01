@@ -223,6 +223,11 @@ result = _execute()
     def _fix_paths_in_code(self, code: str) -> str:
         """Fix file paths in the code to use the workspace directory."""
         with logfire.span("fix_paths_in_code"):
+            # Helper function to check if a value looks like a path
+            def _is_path_value(value):
+                path_extensions = ['.wav', '.txt', '.json', '.csv', '.mp3', '.flac', '.ogg']
+                return any(value.endswith(ext) for ext in path_extensions)
+            
             # Helper function to fix individual paths
             def _fix_path(match):
                 path = match.group(1)
@@ -239,12 +244,18 @@ result = _execute()
                 kwarg_name = match.group(1)
                 quote = match.group(2)
                 path = match.group(3)
-                if path.endswith('.wav'):
-                    # Audio files should be in the audio subdirectory
-                    return f'{kwarg_name}={quote}{os.path.join(str(self.audio_dir), os.path.basename(path))}{quote}'
+                
+                # Only fix paths that look like file paths
+                if _is_path_value(path):
+                    if path.endswith('.wav'):
+                        # Audio files should be in the audio subdirectory
+                        return f'{kwarg_name}={quote}{os.path.join(str(self.audio_dir), os.path.basename(path))}{quote}'
+                    else:
+                        # Other files go in workspace root
+                        return f'{kwarg_name}={quote}{os.path.join(str(self.workspace_dir), os.path.basename(path))}{quote}'
                 else:
-                    # Other files go in workspace root
-                    return f'{kwarg_name}={quote}{os.path.join(str(self.workspace_dir), os.path.basename(path))}{quote}'
+                    # Not a path, leave as is
+                    return match.group(0)
 
             # Fix paths in lists
             def _fix_list_paths(match):
@@ -252,12 +263,16 @@ result = _execute()
                 fixed_paths = []
                 for path in paths:
                     path = path.strip().strip('"\'')
-                    if path.endswith('.wav'):
-                        # Audio files should be in the audio subdirectory
-                        fixed_paths.append(f'"{os.path.join(str(self.audio_dir), os.path.basename(path))}"')
+                    if _is_path_value(path):
+                        if path.endswith('.wav'):
+                            # Audio files should be in the audio subdirectory
+                            fixed_paths.append(f'"{os.path.join(str(self.audio_dir), os.path.basename(path))}"')
+                        else:
+                            # Other files go in workspace root
+                            fixed_paths.append(f'"{os.path.join(str(self.workspace_dir), os.path.basename(path))}"')
                     else:
-                        # Other files go in workspace root
-                        fixed_paths.append(f'"{os.path.join(str(self.workspace_dir), os.path.basename(path))}"')
+                        # Not a path, leave as is
+                        fixed_paths.append(f'"{path}"')
                 return '[' + ', '.join(fixed_paths) + ']'
 
             # First fix keyword arguments
